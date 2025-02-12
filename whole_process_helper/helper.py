@@ -650,14 +650,7 @@ def sample_operation(operation_predictions):
         p_chamfer_new.item()
     ])
 
-    # Sample an index from the probabilities
-    sampled_index = torch.multinomial(new_probabilities, num_samples=1)
-    sampled_class_prob = new_probabilities[sampled_index].item()
-    
-    # Map back to the original class indices (0-5)
-    sampled_class = sampled_index.item()
-
-    return sampled_class, sampled_class_prob
+    return new_probabilities
 
 
 

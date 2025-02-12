@@ -32,8 +32,11 @@ import random
 import copy
 import re
 
+from collections import deque
+
+
 # --------------------- Dataset --------------------- #
-dataset = Preprocessing.dataloader.Program_Graph_Dataset('dataset/whole', return_data_path=True)
+dataset = Preprocessing.dataloader.Program_Graph_Dataset('dataset/test', return_data_path=True)
 data_loader = DataLoader(dataset, batch_size=1, shuffle=True)
 
 
@@ -81,7 +84,6 @@ for data in tqdm(data_loader, desc="Generating CAD Programs"):
     if program[-1][0] != 'terminate':
         continue
     
-    # try:
     cur_output_dir = os.path.join(output_dir, f'data_{data_produced}')
     if os.path.exists(cur_output_dir):
         shutil.rmtree(cur_output_dir)
@@ -98,22 +100,33 @@ for data in tqdm(data_loader, desc="Generating CAD Programs"):
 
     base_particle = particle.Particle(gt_brep_file_path, data_produced, stroke_node_features.squeeze(0).cpu().numpy())
     base_particle.set_gt_program(program)
-    particle_list = []
-    for particle_id in range (50):
-        new_particle = copy.deepcopy(base_particle)
-        new_particle.set_particle_id(particle_id, cur_output_dir)
-        particle_list.append(new_particle)
+    base_particle.set_particle_id(0, cur_output_dir)
 
 
-    finished_particles = []
-    while len(particle_list) > 0:
-        # particle.next step 
-        for cur_particle in particle_list:
-            cur_particle.generate_next_step()
 
-        # resample particles
-        particle_list, finished_particles= whole_process_helper.helper.resample_particles(particle_list, finished_particles)
+    reproducible_particles = [base_particle]
+    num_states = 1
 
-    whole_process_helper.helper.find_top_different_particles(finished_particles, cur_output_dir)
+
+    while len(reproducible_particles) != 0:
+        reproducible_particle = reproducible_particles.pop(0) 
+
+        available_ops = reproducible_particle.reproduce()
+
+        for op in available_ops:
+            new_particle = reproducible_particle.deepcopy_particle(num_states)
+            new_particle.current_op = op
+            new_particle.generate_next_step()
+
+            if not new_particle.leafNode:
+                reproducible_particles.append(new_particle)
+
+            num_states += 1
+
+
+
+
+
+
 
     data_produced += 1

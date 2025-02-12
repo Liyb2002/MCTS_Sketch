@@ -50,7 +50,7 @@ class Particle():
 
         self.data_produced = data_produced
 
-        self.brep_edges = torch.zeros(0)
+        self.brep_edges = torch.zeros(0).numpy()
         self.brep_loops = []
         self.cur__brep_class = Preprocessing.proc_CAD.generate_program.Brep()
 
@@ -76,13 +76,42 @@ class Particle():
         # Particle State
         self.valid_particle = True
         self.success_terminate = False
-        self.score = 1
         self.used_loops = -1
 
 
-        # Feature_strokes
-        self.predicted_feature_strokes = None
+        self.particle_id = 1
+        self.leafNode = False
+        self.value = -1
 
+
+    def non_available_ops(self):
+        
+        failed_ops = []
+
+        # program start : only sketch 
+        if len(self.past_programs) == 1:
+            failed_ops.extend([0, 2, 3, 4])
+
+        # only extrude after sketch
+        if self.past_programs[-1] == 1:
+            failed_ops.extend([0, 1, 3, 4])
+        
+        # no extrude after extrude
+        if self.past_programs[-1] == 2:
+            failed_ops.extend([2])
+
+        # if program len > gt_program len
+        if len(self.past_programs) > len(self.gt_program):
+            failed_ops.extend([1, 2, 3, 4])
+
+        if len(self.past_programs) < len(self.gt_program)-1:
+            failed_ops.extend([0])
+
+        return failed_ops
+
+    
+    def set_state(self):
+        self.leafNode = False
 
 
     def set_particle_id(self, particle_id, cur_output_dir_outerFolder):
@@ -113,8 +142,6 @@ class Particle():
         new_particle.selected_loop_indices = self.selected_loop_indices[:]
         new_particle.valid_particle = self.valid_particle
         new_particle.success_terminate = self.success_terminate
-        new_particle.score = self.score
-        new_particle.predicted_feature_strokes = (self.predicted_feature_strokes.clone() if self.predicted_feature_strokes is not None else None)
         new_particle.gt_program = self.gt_program
 
 
@@ -135,15 +162,6 @@ class Particle():
 
 
     def program_terminated(self, gnn_graph):
-
-        # if self.predicted_feature_strokes is None:
-        #     return False
-        
-        # termination_prob, untouched_feature_idx= whole_process_helper.helper.sample_program_termination(gnn_graph['stroke'].x.cpu().numpy(), self.predicted_feature_strokes)
-        # # Encoders.helper.vis_selected_strokes(gnn_graph['stroke'].x.cpu().numpy(), [])
-
-        # if random.random() < termination_prob or len(self.past_programs) > 20: 
-        #     return True
         
         if (len(self.gt_program) == len(self.past_programs)):
             stroke_features_file = os.path.join(self.cur_output_dir, 'stroke_cloud_features.json')
@@ -155,12 +173,7 @@ class Particle():
                     json_file.write("\n")
 
         return len(self.gt_program) == len(self.past_programs)
-        
-
-
-    def particle_score(self):
-        return self.score
-    
+            
 
     def is_valid_particle(self):
         return self.valid_particle
@@ -170,9 +183,6 @@ class Particle():
 
         brep_loops_used = np.any(stroke_to_loop == 1, axis=0)
         new_loops_mark_off = np.sum(brep_loops_used)
-
-        print("new_loops_mark_off", new_loops_mark_off)
-        print("self.used_loops", self.used_loops)
 
         if self.used_loops == -1 and self.used_loops == -1:
             self.used_loops = new_loops_mark_off
@@ -186,8 +196,13 @@ class Particle():
         return False
 
         
-
     def generate_next_step(self):
+
+        if self.current_op == 0:
+            self.leafNode = True
+            self.value = 1
+
+            return
 
         try:
 
@@ -217,35 +232,10 @@ class Particle():
             )
 
 
-            # Encoders.helper.vis_brep(self.brep_edges)
-            # Encoders.helper.vis_left_graph(gnn_graph['stroke'].x.cpu().numpy())
-            # Encoders.helper.vis_left_graph_loops(gnn_graph['stroke'].x.cpu().numpy(), gnn_graph['loop'].x.cpu().numpy(), self.stroke_cloud_loops)
-            
-            if self.past_programs[-1] != 2:
-                self.mark_off_new_strokes(stroke_to_loop)
-            else:
-                if not self.mark_off_new_strokes(stroke_to_loop):
-                    self.remove_particle()
-                    print("No new feature added")
-                    self.valid_particle = False
-                    return
-
-
-
-            # compute particle score
-            self.fidelity_score = do_fidelity_score_prediction(gnn_graph)
-            # print("predicted fidelity_score", self.fidelity_score)
-
-            if len(self.past_programs) == 1:
-                # Find all feature edges
-                self.predicted_feature_strokes = do_stroke_type_prediction(gnn_graph)
-
-
             if self.current_op == 1:
                 print("Build sketch")
                 self.sketch_selection_mask, self.sketch_points, normal, selected_loop_idx, prob = do_sketch(gnn_graph)
                 self.selected_loop_indices.append(selected_loop_idx)
-                self.score = self.score * prob
                 if self.sketch_points.shape[0] == 1:
                     # do circle sketch
                     self.cur__brep_class.regular_sketch_circle(self.sketch_points[0, 3:6].tolist(), self.sketch_points[0, 7].item(), self.sketch_points[0, :3].tolist())
@@ -258,7 +248,6 @@ class Particle():
                 print("Build extrude")
                 extrude_target_point, prob = do_extrude(gnn_graph, self.sketch_selection_mask, self.sketch_points, self.brep_edges)
                 self.cur__brep_class.extrude_op(extrude_target_point)
-                self.score = self.score * prob
 
 
             # Build fillet
@@ -266,14 +255,12 @@ class Particle():
                 print("Build Fillet")
                 fillet_edge, fillet_amount, prob = do_fillet(gnn_graph, self.brep_edges)
                 self.cur__brep_class.random_fillet(fillet_edge, fillet_amount)
-                self.score = self.score * prob
 
 
             if self.current_op ==4:
                 print("Build Chamfer")
                 chamfer_edge, chamfer_amount, prob= do_chamfer(gnn_graph, self.brep_edges)
                 self.cur__brep_class.random_chamfer(chamfer_edge, chamfer_amount)
-                self.score = self.score * prob
 
 
             # 5.3) Write to brep
@@ -294,7 +281,6 @@ class Particle():
 
 
             # 5.6) Update brep data
-            prev_brep_edges = self.brep_edges
             brep_path = os.path.join(output_dir_name, f'data_{self.data_produced}', f'particle_{self.particle_id}', 'canvas')
             self.brep_edges, self.brep_loops = cascade_brep(brep_files, self.data_produced, brep_path)
             # self.brep_loops = Preprocessing.proc_CAD.helper.remove_duplicate_circle_breps(self.brep_loops, self.brep_edges)
@@ -305,14 +291,6 @@ class Particle():
             cur_fidelity_score = -1
 
             self.past_programs.append(self.current_op)
-            self.current_op, op_prob = program_prediction(gnn_graph, self.past_programs)
-            self.score = self.score * op_prob
-
-
-            print("----------------")
-            print("self.past_programs", self.past_programs)
-            print("self.gt_program", self.gt_program)
-            print("self.current_op", self.current_op)
 
             # 6) Write the stroke_cloud data to pkl file
             output_file_path = os.path.join(self.cur_output_dir, 'canvas', f'{len(brep_files)-1}_eval_info.pkl')
@@ -320,7 +298,6 @@ class Particle():
                 pickle.dump({
                     'stroke_node_features': self.stroke_node_features,
                     'gt_brep_edges': self.gt_brep_edges,
-                    'cur_fidelity_score' : cur_fidelity_score, 
 
                     'stroke_cloud_loops': self.stroke_cloud_loops, 
 
@@ -336,44 +313,11 @@ class Particle():
 
                 }, f)
             
-
-            # 7) Also copy the gt brep file
-            gt_brep_folder = os.path.dirname(self.gt_brep_file_path)
-
-            # Create a new folder called gt_canvas in self.cur_output_dir
-            gt_canvas_dir = os.path.join(self.cur_output_dir, 'gt_canvas')
-            os.makedirs(gt_canvas_dir, exist_ok=True)
-
-            # Copy everything from gt_brep_folder to gt_canvas
-            for item in os.listdir(gt_brep_folder):
-                source_item = os.path.join(gt_brep_folder, item)
-                dest_item = os.path.join(gt_canvas_dir, item)
-                
-                if os.path.isdir(source_item):
-                    shutil.copytree(source_item, dest_item, dirs_exist_ok=True)
-                else:
-                    shutil.copy2(source_item, dest_item)
-            
-            shutil.copy(self.gt_brep_file_path, os.path.join(self.cur_output_dir, 'gt_brep.step'))
-
-            whole_process_helper.helper.brep_to_stl_and_copy(self.gt_brep_file_path, self.cur_output_dir,os.path.join(self.cur_output_dir, 'gt_brep.step'))
-
                 
         except Exception as e:
-            print(f"An error occurred: {e}")
-            print("error building")
-            self.valid_particle = False
-            
-            if len(self.past_programs) > 8 and random.random() > 0.5:
-                self.success_terminate = True
-            else:
-                self.remove_particle()
+            self.leafNode = True
+            self.value = 0 
 
-
-        if self.current_op == 0:
-            # do a final check
-            self.correct_termination_check()
-            return 
 
 
     def get_gt_brep_history(self):
@@ -385,38 +329,11 @@ class Particle():
 
 
 
-    def remove_particle(self):
-        shutil.rmtree(self.cur_output_dir)
+    def reproduce(self):
+        possible_ops = [0, 1, 2, 3, 4]
+        available_ops = [op for op in possible_ops if op not in self.non_available_ops()]
 
-
-    def correct_termination_check(self):
-        if self.past_programs[-1] != 2 and len(self.past_programs) > 3:
-            self.valid_particle = False
-            self.success_terminate = True
-            return 
-
-
-        if self.past_programs[-1] == 1 or len(self.past_programs) < 3:
-            self.remove_particle()
-            self.valid_particle = False
-            return 
-
-        else:
-            stroke_to_loop_lines = Preprocessing.proc_CAD.helper.stroke_to_brep(self.stroke_cloud_loops, self.brep_loops, self.stroke_node_features, self.brep_edges)
-            stroke_to_loop_circle = Preprocessing.proc_CAD.helper.stroke_to_brep_circle(self.stroke_cloud_loops, self.brep_loops, self.stroke_node_features, self.brep_edges)
-            stroke_to_loop = Preprocessing.proc_CAD.helper.union_matrices(stroke_to_loop_lines, stroke_to_loop_circle)
-            stroke_to_loop = Preprocessing.proc_CAD.helper.union_matrices(stroke_to_loop_lines, stroke_to_loop_circle)
-
-            if not self.mark_off_new_strokes(stroke_to_loop):
-                self.remove_particle()
-                print("No new feature added")
-                self.valid_particle = False
-                return
-
-            self.valid_particle = False
-            self.success_terminate = True
-
-        return 
+        return available_ops
 
 
 
