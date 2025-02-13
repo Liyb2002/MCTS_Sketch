@@ -642,13 +642,13 @@ def sample_operation(operation_predictions):
 
 
     # Construct the new tensor
-    new_probabilities = torch.tensor([
+    new_probabilities = [
         probabilities[0].item(),
         probabilities[1].item(),
         probabilities[2].item(),
         p_fillet_new.item(),
         p_chamfer_new.item()
-    ])
+    ]
 
     return new_probabilities
 

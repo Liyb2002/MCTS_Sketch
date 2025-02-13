@@ -76,8 +76,10 @@ class Particle():
         # Particle State
         self.particle_id = 1
         self.leafNode = False
+        self.prob = 1
 
         self.value = 0
+        self.prob = 1
         self.childNodes = []
 
 
@@ -85,13 +87,13 @@ class Particle():
         if not self.childNodes:
             return self.value
 
-        self.value = sum(child.compute_value() for child in self.childNodes)
+        self.value = sum(child.compute_value() * child.prob for child in self.childNodes)
         return self.value
 
 
     def print_tree(self):
         """Prints the value of the node and its children recursively."""
-        print("Node id", self.particle_id, "has value", self.value)
+        print("Node id", self.particle_id, "has prob", self.prob, "has value", self.value)
         for child in self.childNodes:
             child.print_tree()
 
@@ -130,7 +132,7 @@ class Particle():
         self.file_path = os.path.join(self.cur_output_dir, 'Program.json')
 
 
-    def deepcopy_particle(self, new_id):
+    def deepcopy_particle(self, new_id, prob):
 
         new_particle = copy.copy(self)
         
@@ -158,7 +160,11 @@ class Particle():
         new_particle.particle_id = new_id
         new_particle.cur_output_dir = new_folder_path
         new_particle.file_path = os.path.join(new_folder_path, 'Program.json')
+
+
+        # Tree info
         new_particle.childNodes = []
+        new_particle.prob = prob
 
 
         # Update Node tree info
@@ -195,35 +201,9 @@ class Particle():
 
         try:
 
-            stroke_to_loop_lines = Preprocessing.proc_CAD.helper.stroke_to_brep(self.stroke_cloud_loops, self.brep_loops, self.stroke_node_features, self.brep_edges)
-            stroke_to_loop_circle = Preprocessing.proc_CAD.helper.stroke_to_brep_circle(self.stroke_cloud_loops, self.brep_loops, self.stroke_node_features, self.brep_edges)
-            stroke_to_loop = Preprocessing.proc_CAD.helper.union_matrices(stroke_to_loop_lines, stroke_to_loop_circle)
-
-            stroke_to_edge_lines = Preprocessing.proc_CAD.helper.stroke_to_edge(self.stroke_node_features, self.brep_edges)
-            stroke_to_edge_circle = Preprocessing.proc_CAD.helper.stroke_to_edge_circle(self.stroke_node_features, self.brep_edges)
-            stroke_to_edge = Preprocessing.proc_CAD.helper.union_matrices(stroke_to_edge_lines, stroke_to_edge_circle)
-
-
-            stroke_to_loop = Preprocessing.proc_CAD.helper.union_matrices(stroke_to_loop_lines, stroke_to_loop_circle)
-            stroke_to_edge = Preprocessing.proc_CAD.helper.union_matrices(stroke_to_edge_lines, stroke_to_edge_circle)
-
-
-            # 2) Build graph
-            gnn_graph = Preprocessing.gnn_graph.SketchLoopGraph(
-                self.stroke_cloud_loops, 
-                self.stroke_node_features, 
-                self.strokes_perpendicular, 
-                self.loop_neighboring_vertical, 
-                self.loop_neighboring_horizontal, 
-                self.loop_neighboring_contained,
-                stroke_to_loop,
-                stroke_to_edge
-            )
-
-
             if self.current_op == 1:
                 print("Build sketch")
-                self.sketch_selection_mask, self.sketch_points, normal, selected_loop_idx, prob = do_sketch(gnn_graph)
+                self.sketch_selection_mask, self.sketch_points, normal, selected_loop_idx, prob = do_sketch(self.gnn_graph)
                 self.selected_loop_indices.append(selected_loop_idx)
                 if self.sketch_points.shape[0] == 1:
                     # do circle sketch
@@ -235,20 +215,20 @@ class Particle():
             # Build Extrude
             if self.current_op == 2:
                 print("Build extrude")
-                extrude_target_point, prob = do_extrude(gnn_graph, self.sketch_selection_mask, self.sketch_points, self.brep_edges)
+                extrude_target_point, prob = do_extrude(self.gnn_graph, self.sketch_selection_mask, self.sketch_points, self.brep_edges)
                 self.cur__brep_class.extrude_op(extrude_target_point)
 
 
             # Build fillet
             if self.current_op == 3:
                 print("Build Fillet")
-                fillet_edge, fillet_amount, prob = do_fillet(gnn_graph, self.brep_edges)
+                fillet_edge, fillet_amount, prob = do_fillet(self.gnn_graph, self.brep_edges)
                 self.cur__brep_class.random_fillet(fillet_edge, fillet_amount)
 
 
             if self.current_op ==4:
                 print("Build Chamfer")
-                chamfer_edge, chamfer_amount, prob= do_chamfer(gnn_graph, self.brep_edges)
+                chamfer_edge, chamfer_amount, prob= do_chamfer(self.gnn_graph, self.brep_edges)
                 self.cur__brep_class.random_chamfer(chamfer_edge, chamfer_amount)
 
 
@@ -305,8 +285,8 @@ class Particle():
                     'loop_neighboring_horizontal': self.loop_neighboring_horizontal,
                     'loop_neighboring_contained': self.loop_neighboring_contained,
 
-                    'stroke_to_loop': stroke_to_loop,
-                    'stroke_to_edge': stroke_to_edge
+                    'stroke_to_loop': self.stroke_to_loop,
+                    'stroke_to_edge': self.stroke_to_edge
 
                 }, f)
             
@@ -333,12 +313,50 @@ class Particle():
         self.gt_final_brep_edges = get_final_brep(brep_path, brep_files[-1])
 
 
+    def build_graph(self):
+        stroke_to_loop_lines = Preprocessing.proc_CAD.helper.stroke_to_brep(self.stroke_cloud_loops, self.brep_loops, self.stroke_node_features, self.brep_edges)
+        stroke_to_loop_circle = Preprocessing.proc_CAD.helper.stroke_to_brep_circle(self.stroke_cloud_loops, self.brep_loops, self.stroke_node_features, self.brep_edges)
+        stroke_to_loop = Preprocessing.proc_CAD.helper.union_matrices(stroke_to_loop_lines, stroke_to_loop_circle)
+
+        stroke_to_edge_lines = Preprocessing.proc_CAD.helper.stroke_to_edge(self.stroke_node_features, self.brep_edges)
+        stroke_to_edge_circle = Preprocessing.proc_CAD.helper.stroke_to_edge_circle(self.stroke_node_features, self.brep_edges)
+        stroke_to_edge = Preprocessing.proc_CAD.helper.union_matrices(stroke_to_edge_lines, stroke_to_edge_circle)
+
+
+        self.stroke_to_loop = Preprocessing.proc_CAD.helper.union_matrices(stroke_to_loop_lines, stroke_to_loop_circle)
+        self.stroke_to_edge = Preprocessing.proc_CAD.helper.union_matrices(stroke_to_edge_lines, stroke_to_edge_circle)
+
+
+        # 2) Build graph
+        self.gnn_graph = Preprocessing.gnn_graph.SketchLoopGraph(
+            self.stroke_cloud_loops, 
+            self.stroke_node_features, 
+            self.strokes_perpendicular, 
+            self.loop_neighboring_vertical, 
+            self.loop_neighboring_horizontal, 
+            self.loop_neighboring_contained,
+            self.stroke_to_loop,
+            self.stroke_to_edge
+        )
+
 
     def reproduce(self):
+
+        self.build_graph()
+
         possible_ops = [0, 1, 2, 3, 4]
+        
+        # Get probabilities for each operation
+        probs = program_prediction(self.gnn_graph, self.past_programs)
+
+        # Get the list of available operations
         available_ops = [op for op in possible_ops if op not in self.non_available_ops()]
 
-        return available_ops
+        # Filter the probabilities for available operations
+        available_probs = [probs[op] for op in available_ops]
+
+        # Return tuples of (operation, probability)
+        return list(zip(available_ops, available_probs))
 
 
 
@@ -494,8 +512,8 @@ def program_prediction(gnn_graph, past_programs):
     x_dict = operation_graph_encoder(gnn_graph.x_dict, gnn_graph.edge_index_dict)
     output = operation_graph_decoder(x_dict, past_programs)
 
-    predicted_class, class_prob = whole_process_helper.helper.sample_operation(output)
-    return predicted_class, class_prob
+    new_probabilities = whole_process_helper.helper.sample_operation(output)
+    return new_probabilities
 
 
 # --------------------- Stroke Type Prediction Network --------------------- #

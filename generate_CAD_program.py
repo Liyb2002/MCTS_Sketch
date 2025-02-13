@@ -114,8 +114,8 @@ for data in tqdm(data_loader, desc="Generating CAD Programs"):
 
         available_ops = reproducible_particle.reproduce()
 
-        for op in available_ops:
-            new_particle = reproducible_particle.deepcopy_particle(num_states)
+        for op, prob in available_ops:
+            new_particle = reproducible_particle.deepcopy_particle(num_states, prob)
             new_particle.current_op = op
             new_particle.generate_next_step()
 
