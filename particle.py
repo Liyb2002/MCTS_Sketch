@@ -76,9 +76,24 @@ class Particle():
         # Particle State
         self.particle_id = 1
         self.leafNode = False
-        self.value = -1
+
+        self.value = 0
         self.childNodes = []
 
+
+    def compute_value(self):
+        if not self.childNodes:
+            return self.value
+
+        self.value = sum(child.compute_value() for child in self.childNodes)
+        return self.value
+
+
+    def print_tree(self):
+        """Prints the value of the node and its children recursively."""
+        print("Node id", self.particle_id, "has value", self.value)
+        for child in self.childNodes:
+            child.print_tree()
 
     def non_available_ops(self):
         
@@ -105,9 +120,6 @@ class Particle():
 
         return failed_ops
 
-    
-    def set_state(self):
-        self.leafNode = False
 
 
     def set_particle_id(self, particle_id, cur_output_dir_outerFolder):
@@ -146,11 +158,10 @@ class Particle():
         new_particle.particle_id = new_id
         new_particle.cur_output_dir = new_folder_path
         new_particle.file_path = os.path.join(new_folder_path, 'Program.json')
+        new_particle.childNodes = []
 
 
         # Update Node tree info
-        self.childNodes.append(new_id)
-        
 
         return new_particle
 
@@ -177,8 +188,8 @@ class Particle():
     def generate_next_step(self):
 
         if self.current_op == 0:
-            self.leafNode = True
             self.value = 1
+            self.leafNode = True
 
             return
 
@@ -309,8 +320,8 @@ class Particle():
 
                 
         except Exception as e:
-            self.leafNode = True
             self.value = 0 
+            self.leafNode = True
 
 
 

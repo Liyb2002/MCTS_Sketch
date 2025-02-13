@@ -66,6 +66,7 @@ def compute_start_idx():
     return max(largest_number, 0)
 
 
+
 # --------------------- Main Code --------------------- #
 data_produced = compute_start_idx()
 data_limit = 50
@@ -118,12 +119,18 @@ for data in tqdm(data_loader, desc="Generating CAD Programs"):
             new_particle.current_op = op
             new_particle.generate_next_step()
 
+            reproducible_particle.childNodes.append(new_particle)
+
             if not new_particle.leafNode:
                 reproducible_particles.append(new_particle)
 
             num_states += 1
 
 
+
+    print("-------------")
+    base_particle.compute_value()
+    base_particle.print_tree()
 
 
 
