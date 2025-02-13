@@ -74,14 +74,10 @@ class Particle():
         self.selected_loop_indices = []
 
         # Particle State
-        self.valid_particle = True
-        self.success_terminate = False
-        self.used_loops = -1
-
-
         self.particle_id = 1
         self.leafNode = False
         self.value = -1
+        self.childNodes = []
 
 
     def non_available_ops(self):
@@ -140,8 +136,6 @@ class Particle():
         new_particle.current_op = self.current_op
         new_particle.past_programs = self.past_programs[:]
         new_particle.selected_loop_indices = self.selected_loop_indices[:]
-        new_particle.valid_particle = self.valid_particle
-        new_particle.success_terminate = self.success_terminate
         new_particle.gt_program = self.gt_program
 
 
@@ -152,7 +146,11 @@ class Particle():
         new_particle.particle_id = new_id
         new_particle.cur_output_dir = new_folder_path
         new_particle.file_path = os.path.join(new_folder_path, 'Program.json')
-        new_particle.valid_particle = True
+
+
+        # Update Node tree info
+        self.childNodes.append(new_id)
+        
 
         return new_particle
 
@@ -174,26 +172,6 @@ class Particle():
 
         return len(self.gt_program) == len(self.past_programs)
             
-
-    def is_valid_particle(self):
-        return self.valid_particle
-
-
-    def mark_off_new_strokes(self, stroke_to_loop):
-
-        brep_loops_used = np.any(stroke_to_loop == 1, axis=0)
-        new_loops_mark_off = np.sum(brep_loops_used)
-
-        if self.used_loops == -1 and self.used_loops == -1:
-            self.used_loops = new_loops_mark_off
-            return True
-        
-        if self.used_loops < new_loops_mark_off:
-            self.used_loops = new_loops_mark_off
-            return True
-        
-        self.used_loops = new_loops_mark_off
-        return False
 
         
     def generate_next_step(self):
@@ -274,6 +252,13 @@ class Particle():
 
             # 5.5) Read brep file
             cur_relative_output_dir = os.path.join(output_dir_name, f'data_{self.data_produced}', f'particle_{self.particle_id}')
+            canvas_dir = os.path.join(cur_relative_output_dir, 'canvas')
+
+            # Remove all .stl files in the canvas directory
+            for file_name in os.listdir(canvas_dir):
+                if file_name.endswith('.stl'):
+                    file_path = os.path.join(canvas_dir, file_name)
+                    os.remove(file_path)
 
             brep_files = [file_name for file_name in os.listdir(os.path.join(cur_relative_output_dir, 'canvas'))
                     if file_name.startswith('brep_') and file_name.endswith('.step')]
@@ -286,13 +271,14 @@ class Particle():
             # self.brep_loops = Preprocessing.proc_CAD.helper.remove_duplicate_circle_breps(self.brep_loops, self.brep_edges)
 
 
-            # Compute Chamfer Distance
-            # cur_fidelity_score = fidelity_score.compute_fidelity_score(self.gt_brep_file_path, os.path.join(brep_path, brep_files[-1]))
-            cur_fidelity_score = -1
-
-            self.past_programs.append(self.current_op)
 
             # 6) Write the stroke_cloud data to pkl file
+            # Remove all non lasting .pkl files in the canvas directory
+            for file_name in os.listdir(canvas_dir):
+                if file_name.endswith('.pkl'):
+                    file_path = os.path.join(canvas_dir, file_name)
+                    os.remove(file_path)
+
             output_file_path = os.path.join(self.cur_output_dir, 'canvas', f'{len(brep_files)-1}_eval_info.pkl')
             with open(output_file_path, 'wb') as f:
                 pickle.dump({
@@ -313,6 +299,14 @@ class Particle():
 
                 }, f)
             
+
+            # 7) Also copy the gt brep.step
+            shutil.copy(self.gt_brep_file_path, os.path.join(self.cur_output_dir, 'gt_brep.step'))
+
+
+            # 8) Update past_programs
+            self.past_programs.append(self.current_op)
+
                 
         except Exception as e:
             self.leafNode = True
