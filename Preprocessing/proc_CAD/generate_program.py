@@ -105,7 +105,7 @@ class Brep:
         self.op.append(['sketch'])
 
 
-    def extrude_op(self, extrude_target_point = None):
+    def extrude_op(self, extrude_target_point = None, mode = None):
         
 
         sketch_face = self.Faces[-1]
@@ -176,7 +176,7 @@ class Brep:
                 print(f"Extrusion amount: {amount}, Normal: {normal}")
 
 
-            if random.random() < 0.5 and len(self.op) > 2:
+            if mode == 'subtraction':
                 amount = -amount
 
 

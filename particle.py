@@ -250,8 +250,9 @@ class Particle():
             # Build Extrude
             if self.current_op == 2:
                 print("Build extrude")
-                extrude_target_point = params
-                self.cur__brep_class.extrude_op(extrude_target_point)
+                extrude_target_point = params[0]
+                mode = params[1]
+                self.cur__brep_class.extrude_op(extrude_target_point, mode)
 
 
             # Build fillet
@@ -469,7 +470,12 @@ def predict_extrude(gnn_graph, sketch_selection_mask, sketch_points, brep_edges)
     
     param_pairs = whole_process_helper.helper.get_extrude_amount(gnn_graph, extrude_selection_mask, sketch_points, brep_edges)
 
-    return param_pairs
+    expanded_param_pairs = []
+    for params, pair_prob in param_pairs:
+        expanded_param_pairs.append(([params, "subtraction"], pair_prob))
+        expanded_param_pairs.append(([params, "addition"], pair_prob))
+
+    return expanded_param_pairs
 
 # --------------------- Fillet Network --------------------- #
 fillet_graph_encoder = Encoders.gnn.gnn.SemanticModule()
