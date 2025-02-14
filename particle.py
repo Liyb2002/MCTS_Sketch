@@ -228,8 +228,6 @@ class Particle():
         
     def generate_next_step(self, params):
 
-        print("params!", params)
-
         if self.current_op == 0:
             self.value = 1
             self.leafNode = True
@@ -252,7 +250,7 @@ class Particle():
             # Build Extrude
             if self.current_op == 2:
                 print("Build extrude")
-                extrude_target_point, prob = do_extrude(self.gnn_graph, self.sketch_selection_mask, self.sketch_points, self.brep_edges)
+                extrude_target_point = params
                 self.cur__brep_class.extrude_op(extrude_target_point)
 
 
@@ -398,9 +396,15 @@ class Particle():
 
         # Sample params for valid_ops
         for op, prob, _ in valid_ops:
+            param_pairs = []
+
             if op == 1:
-                sketch_params_pairs = predict_sketch(self.gnn_graph)
-                for params, pair_prob in sketch_params_pairs:
+                param_pairs = predict_sketch(self.gnn_graph)  # Get sketch params
+            elif op == 2:
+                param_pairs = predict_extrude(self.gnn_graph, self.sketch_selection_mask, self.sketch_points, self.brep_edges)  # Get extrude params
+
+            if param_pairs:
+                for params, pair_prob in param_pairs:
                     expanded_valid_ops.append((op, prob * pair_prob, params))  # Multiply probabilities
             else:
                 expanded_valid_ops.append((op, prob, None))  # Keep as is for other ops
@@ -443,6 +447,7 @@ def predict_sketch(gnn_graph):
         cur_sketch_selection_mask = whole_process_helper.helper.clean_mask(sketch_selection_mask, selected_loop_idx)
 
         # Append the required tuple format
+        # format: [([param1, param2], prob), ([param1, param2], prob), ([param1, param2], prob)]
         updated_pairs.append(([cur_sketch_selection_mask, sketch_points, normal, selected_loop_idx], final_prob))
 
     return updated_pairs
@@ -456,24 +461,15 @@ extrude_graph_decoder.eval()
 extrude_graph_encoder.load_state_dict(torch.load(os.path.join(extrude_dir, 'graph_encoder.pth'), weights_only=True))
 extrude_graph_decoder.load_state_dict(torch.load(os.path.join(extrude_dir, 'graph_decoder.pth'), weights_only=True))
 
-def predict_extrude(gnn_graph, sketch_selection_mask):
+def predict_extrude(gnn_graph, sketch_selection_mask, sketch_points, brep_edges):
     gnn_graph.set_select_sketch(sketch_selection_mask)
 
     x_dict = extrude_graph_encoder(gnn_graph.x_dict, gnn_graph.edge_index_dict)
     extrude_selection_mask = extrude_graph_decoder(x_dict)
     
-    extrude_stroke_idx =  (extrude_selection_mask >= 0.5).nonzero(as_tuple=True)[0]
-    # _, extrude_stroke_idx = torch.max(extrude_selection_mask, dim=0)
-    # Encoders.helper.vis_selected_strokes(gnn_graph['stroke'].x.cpu().numpy(), extrude_stroke_idx)
-    return extrude_selection_mask
+    param_pairs = whole_process_helper.helper.get_extrude_amount(gnn_graph, extrude_selection_mask, sketch_points, brep_edges)
 
-def do_extrude(gnn_graph, sketch_selection_mask, sketch_points, brep_edges):
-    extrude_selection_mask = predict_extrude(gnn_graph, sketch_selection_mask)
-    extrude_target_point, selected_prob= whole_process_helper.helper.get_extrude_amount(gnn_graph, extrude_selection_mask, sketch_points, brep_edges)
-
-    return extrude_target_point, selected_prob
-
-
+    return param_pairs
 
 # --------------------- Fillet Network --------------------- #
 fillet_graph_encoder = Encoders.gnn.gnn.SemanticModule()

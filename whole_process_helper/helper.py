@@ -207,104 +207,61 @@ def extract_unique_points(max_prob_loop_idx, gnn_graph):
 
 def get_extrude_amount(gnn_graph, extrude_selection_mask, sketch_points, brep_edges):
     """
-    Calculate the extrude target point from the stroke with the highest probability in the extrude_selection_mask.
-    The extrusion target is determined by identifying the point of the stroke that is not in the sketch points (coplanar points).
+    Finds unique strokes based on their extrude amount and computes target points for extrusion.
 
     Parameters:
-    gnn_graph (HeteroData): The graph containing stroke nodes and their features.
-    extrude_selection_mask (torch.Tensor): A tensor of shape (num_strokes, 1) representing probabilities for selecting strokes.
-    sketch_points (torch.Tensor): A tensor of shape (num_points, 3), representing the coplanar points.
-    brep_edges (torch.Tensor): A tensor of shape (num_strokes, 6) representing the brep edges (not used in this logic).
+    - gnn_graph (HeteroData): The graph containing stroke nodes and their features.
+    - extrude_selection_mask (torch.Tensor): A tensor of shape (num_strokes, 1) representing probabilities for selecting strokes.
+    - sketch_points (torch.Tensor): A tensor of shape (num_points, 3), representing coplanar points.
+    - brep_edges (torch.Tensor): A tensor of shape (num_strokes, 6) representing the brep edges (not used in this logic).
 
     Returns:
-    torch.Tensor: The target point for extrusion.
+    - list: A list of tuples [(target_point, prob), ...], where prob > 0.05.
     """
-
 
     if sketch_points.shape[0] == 1:
         return get_extrude_amount_circle(gnn_graph, sketch_points, extrude_selection_mask)
-    
-    # 1. Find the strokes with the highest probabilities in extrude_selection_mask
-    topk_vals, topk_idxs = torch.topk(extrude_selection_mask.view(-1), 10)  # Get more top candidates to ensure uniqueness
 
+    # Get stroke features
     stroke_features = gnn_graph['stroke'].x  # Shape: (num_strokes, 7), first 6 values are the 3D points
 
-    # Initialize variables to store the top 2 unique strokes
-    selected_strokes = []
-    unique_extrude_amounts = set()
+    # Get top-k stroke indices with the highest selection probabilities
+    topk_vals, topk_idxs = torch.topk(extrude_selection_mask.view(-1), 10)  # More candidates for uniqueness
 
-    # Iterate over topk indices to find 2 strokes with different extrude amounts
+    unique_strokes = {}  # Stores unique strokes based on extrude amount {extrude_amount: (stroke_feature, prob)}
+
+    # Find unique strokes based on extrude amount
     for idx in topk_idxs:
         stroke_feature = stroke_features[idx]
         point1 = stroke_feature[:3]
         point2 = stroke_feature[3:6]
-        
+
         # Compute extrude amount (distance between start and end points)
         extrude_amount = torch.norm(point1 - point2, p=2).item()
-        
-        if extrude_amount not in unique_extrude_amounts:
-            selected_strokes.append((idx.item(), extrude_amount))
-            unique_extrude_amounts.add(extrude_amount)
-            
-        # Stop once we have 2 unique strokes
-        if len(selected_strokes) == 2:
-            break
+        prob = extrude_selection_mask[idx].item()
 
-    # Extract indices and probabilities of the selected strokes
-    selected_idxs = [s[0] for s in selected_strokes]
-    selected_extrude_amounts = [s[1] for s in selected_strokes]
-    selected_probs = [extrude_selection_mask[idx] for idx in selected_idxs]
+        # Only consider strokes with prob > 0.05 and unique extrude amounts
+        if prob > 0.05 and extrude_amount not in unique_strokes:
+            unique_strokes[extrude_amount] = (stroke_feature, prob)
 
-    # Normalize probabilities for random sampling
-    selected_probs = torch.tensor(selected_probs)
-    temperature = 0.5
-    relative_probs = torch.softmax(selected_probs / temperature, dim=0)
+    results = []  # List of (target_point, prob)
 
-    # Randomly choose one of the strokes based on probabilities
-    sampled_idx = torch.multinomial(relative_probs, 1).item()
-    selected_idx = selected_idxs[sampled_idx]
-    stroke_feature = stroke_features[selected_idx]
-    selected_prob = selected_probs[sampled_idx].item()
+    # Compute target points for the unique strokes
+    for stroke_feature, prob in unique_strokes.values():
+        point1 = stroke_feature[:3]
+        point2 = stroke_feature[3:6]
 
-    # Extract the two points of the stroke
-    point1 = stroke_feature[:3]
-    point2 = stroke_feature[3:6]
-
-
-
-
-    # Now find the target_point
-    if sketch_points.shape[0] == 1:
-        # Handle circle strokes
-        circle_stroke = sketch_points.squeeze(0)
-        normal_vector = circle_stroke[3:6]
-
-        # Find common_axis_idx where the normal vector has a value of 1
-        common_axis_idx = -1
-        for i in range(3):
-            if normal_vector[i] == 1 or normal_vector[i] == -1:
-                common_axis_idx = i
-                break
-        
-        if common_axis_idx != -1:
-            plane_value = circle_stroke[common_axis_idx]
-            # Check which point lies on the plane
-            if torch.isclose(point1[common_axis_idx], torch.tensor(plane_value)):
-                target_point = point2
-            else:
-                target_point = point1
-        else:
-            raise ValueError("Get extrude_amount failed, Normal vector does not define a valid plane.")
-    else:
-        # For regular sketch points, check which point is in the sketch points
+        # Determine target_point
         if any(torch.allclose(point1, sp) for sp in sketch_points):
             target_point = point2
         elif any(torch.allclose(point2, sp) for sp in sketch_points):
             target_point = point1
         else:
-            raise ValueError("Get extrude_amount failed, No matching point found in sketch points.")
+            continue  # Skip strokes that don't match any sketch points
 
-    return target_point, selected_prob
+        results.append((target_point, prob))
+
+    return results  # Returns a list of tuple (target_point, prob)
 
 
 
@@ -355,7 +312,7 @@ def get_extrude_amount_circle(gnn_graph, sketch_points, extrude_selection_mask):
     # Compute the target point by extruding from the center
     target_point = [center[i].item() + direction[i] for i in range(3)]
 
-    return target_point, extrude_amount
+    return [(target_point, extrude_amount)]
 
 
 
