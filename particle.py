@@ -23,6 +23,7 @@ from tqdm import tqdm
 
 import copy
 import json
+from collections import Counter
 
 import pickle
 import torch
@@ -93,34 +94,68 @@ class Particle():
 
     def print_tree(self):
         """Prints the value of the node and its children recursively."""
-        print("Node id", self.particle_id, "has prob", self.prob, "has value", self.value)
+        print("Node id", self.particle_id, "has prob", self.prob, "has program", self.past_programs, "has value", self.value)
         for child in self.childNodes:
             child.print_tree()
 
-    def non_available_ops(self):
+
+
+    def available_ops(self):
+        # Define operation mapping
+        op_mapping = {
+            "terminate": 0,
+            "sketch": 1,
+            "extrude": 2,
+            "fillet": 3,
+            "chamfer": 4
+        }
+
+        # Count occurrences in ground truth program
+        gt_counts = Counter(self.gt_program)
         
-        failed_ops = []
+        # Count occurrences in past programs
+        used_counts = Counter(self.past_programs)
+
+        # Compute available operations
+        available_ops = [op for op in gt_counts if used_counts[op] < gt_counts[op]]
+
+        # Convert named operations (if needed) to numbers
+        available_ops_numeric = [op_mapping[op[0]] if isinstance(op, tuple) and len(op) == 1 else op_mapping[op] for op in available_ops]
+        
+        return available_ops_numeric  # Ensure it matches the numeric format
+
+
+    def non_available_ops(self):
+        failed_ops = set()
+
+        possible_ops = {0, 1, 2, 3, 4}
+
+        # Get available operations
+        available_ops = set(self.available_ops())  
 
         # program start : only sketch 
         if len(self.past_programs) == 1:
-            failed_ops.extend([0, 2, 3, 4])
+            failed_ops.update([0, 2, 3, 4])
 
         # only extrude after sketch
         if self.past_programs[-1] == 1:
-            failed_ops.extend([0, 1, 3, 4])
+            failed_ops.update([0, 1, 3, 4])
         
         # no extrude after extrude
         if self.past_programs[-1] == 2:
-            failed_ops.extend([2])
+            failed_ops.update([2])
 
         # if program len > gt_program len
         if len(self.past_programs) > len(self.gt_program):
-            failed_ops.extend([1, 2, 3, 4])
+            failed_ops.update([1, 2, 3, 4])
 
         if len(self.past_programs) < len(self.gt_program)-1:
-            failed_ops.extend([0])
+            failed_ops.update([0])
 
-        return failed_ops
+        # Add any operation that is NOT in available_ops
+        failed_ops.update(possible_ops - available_ops)
+
+        return list(failed_ops)  # Convert back to list
 
 
 
@@ -300,6 +335,7 @@ class Particle():
 
                 
         except Exception as e:
+            print("exception:", e)
             self.value = 0 
             self.leafNode = True
 
@@ -355,8 +391,9 @@ class Particle():
         # Filter the probabilities for available operations
         available_probs = [probs[op] for op in available_ops]
 
-        # Return tuples of (operation, probability)
-        return list(zip(available_ops, available_probs))
+        valid_ops = [(op, prob) for op, prob in zip(available_ops, available_probs) if prob >= 0.02]
+
+        return valid_ops  # Return filtered list of (operation, probability) pairs
 
 
 
