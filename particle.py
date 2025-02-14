@@ -69,6 +69,7 @@ class Particle():
 
         self.current_op = 1
         self.past_programs = [9]
+        self.used_loops = -1
 
 
         # Iteration infos
@@ -97,6 +98,23 @@ class Particle():
         print("Node id", self.particle_id, "has prob", self.prob, "has program", self.past_programs, "has value", self.value)
         for child in self.childNodes:
             child.print_tree()
+
+
+    def mark_off_new_strokes(self, stroke_to_loop):
+
+        brep_loops_used = np.any(stroke_to_loop == 1, axis=0)
+        new_loops_mark_off = np.sum(brep_loops_used)
+
+        if self.used_loops == -1 and self.used_loops == -1:
+            self.used_loops = new_loops_mark_off
+            return True
+        
+        if self.used_loops < new_loops_mark_off:
+            self.used_loops = new_loops_mark_off
+            return True
+        
+        self.used_loops = new_loops_mark_off
+        return False
 
 
 
@@ -235,6 +253,16 @@ class Particle():
             return
 
         try:
+
+            if self.past_programs[-1] != 2:
+                self.mark_off_new_strokes(self.stroke_to_loop)
+            else:
+                if not self.mark_off_new_strokes(self.stroke_to_loop):
+                    self.value = 0
+                    self.leafNode = True
+                    return
+
+
 
             if self.current_op == 1:
                 print("Build sketch")
