@@ -226,7 +226,9 @@ class Particle():
             
 
         
-    def generate_next_step(self):
+    def generate_next_step(self, params):
+
+        print("params!", params)
 
         if self.current_op == 0:
             self.value = 1
@@ -238,7 +240,7 @@ class Particle():
 
             if self.current_op == 1:
                 print("Build sketch")
-                self.sketch_selection_mask, self.sketch_points, normal, selected_loop_idx, prob = do_sketch(self.gnn_graph)
+                self.sketch_selection_mask, self.sketch_points, normal, selected_loop_idx = params
                 self.selected_loop_indices.append(selected_loop_idx)
                 if self.sketch_points.shape[0] == 1:
                     # do circle sketch
@@ -377,7 +379,6 @@ class Particle():
 
 
     def reproduce(self):
-
         self.build_graph()
 
         possible_ops = [0, 1, 2, 3, 4]
@@ -387,13 +388,24 @@ class Particle():
 
         # Get the list of available operations
         available_ops = [op for op in possible_ops if op not in self.non_available_ops()]
-
-        # Filter the probabilities for available operations
         available_probs = [probs[op] for op in available_ops]
+        
+        # Filter valid operations with probability >= 0.02
+        valid_ops = [(op, prob, None) for op, prob in zip(available_ops, available_probs) if prob >= 0.02]
 
-        valid_ops = [(op, prob) for op, prob in zip(available_ops, available_probs) if prob >= 0.02]
+        # Store expanded valid operations
+        expanded_valid_ops = []
 
-        return valid_ops  # Return filtered list of (operation, probability) pairs
+        # Sample params for valid_ops
+        for op, prob, _ in valid_ops:
+            if op == 1:
+                sketch_params_pairs = predict_sketch(self.gnn_graph)
+                for params, pair_prob in sketch_params_pairs:
+                    expanded_valid_ops.append((op, prob * pair_prob, params))  # Multiply probabilities
+            else:
+                expanded_valid_ops.append((op, prob, None))  # Keep as is for other ops
+
+        return expanded_valid_ops  # Return filtered and expanded list of (operation, probability, params)
 
 
 
@@ -421,21 +433,19 @@ def predict_sketch(gnn_graph):
     x_dict = sketch_graph_encoder(gnn_graph.x_dict, gnn_graph.edge_index_dict)
     sketch_selection_mask = sketch_graph_decoder(x_dict)
 
-    selected_loop_idx, idx_prob = whole_process_helper.helper.find_valid_sketch(gnn_graph, sketch_selection_mask)
-    sketch_stroke_idx = Encoders.helper.find_selected_strokes_from_loops(gnn_graph['stroke', 'represents', 'loop'].edge_index, selected_loop_idx)
+    valid_pairs = whole_process_helper.helper.find_valid_sketch(gnn_graph, sketch_selection_mask)
 
-    # Encoders.helper.vis_selected_strokes(gnn_graph['stroke'].x.cpu().numpy(), sketch_stroke_idx)
+    updated_pairs = []  # List to store (tuple, final_prob)
 
-    return selected_loop_idx, sketch_selection_mask, idx_prob
+    for selected_loop_idx, final_prob in valid_pairs:
+        sketch_points = whole_process_helper.helper.extract_unique_points(selected_loop_idx[0], gnn_graph)
+        normal = [1, 0, 0]
+        cur_sketch_selection_mask = whole_process_helper.helper.clean_mask(sketch_selection_mask, selected_loop_idx)
 
-def do_sketch(gnn_graph):
-    selected_loop_idx, sketch_selection_mask, idx_prob= predict_sketch(gnn_graph)
-    sketch_points = whole_process_helper.helper.extract_unique_points(selected_loop_idx[0], gnn_graph)
+        # Append the required tuple format
+        updated_pairs.append(([cur_sketch_selection_mask, sketch_points, normal, selected_loop_idx], final_prob))
 
-    normal = [1, 0, 0]
-    sketch_selection_mask = whole_process_helper.helper.clean_mask(sketch_selection_mask, selected_loop_idx)
-    return sketch_selection_mask, sketch_points, normal, selected_loop_idx, idx_prob
-
+    return updated_pairs
 
 # --------------------- Extrude Network --------------------- #
 extrude_graph_encoder = Encoders.gnn.gnn.SemanticModule()

@@ -608,18 +608,21 @@ def find_valid_sketch(gnn_graph, sketch_selection_mask):
             break
 
     if len(valid_indices) == 0:
-        return [-1], -1
+        return []
 
     top_probs = sketch_selection_mask[valid_indices]
     top_probs = torch.maximum(top_probs, torch.tensor(0.2))
     normalized_probs = top_probs / top_probs.sum()
-    
-    # Sample an index based on the normalized probabilities
-    sampled_index = torch.multinomial(normalized_probs, num_samples=1)[0].item() 
-    final_index = valid_indices[sampled_index]
-    final_prob = max(normalized_probs[sampled_index].item(), top_probs[sampled_index].item())
-    
-    return [final_index], final_prob
+
+    # Find all pairs (final_index, final_prob) where final_prob > 0.05
+    valid_pairs = []
+    for i in range(len(valid_indices)):
+        final_index = valid_indices[i]
+        final_prob = max(normalized_probs[i].item(), top_probs[i].item())
+        if final_prob > 0.05:
+            valid_pairs.append(([final_index], final_prob))
+
+    return valid_pairs
 
 
 # --------------------------------------------------------------------------- #
