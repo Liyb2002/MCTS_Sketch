@@ -131,8 +131,7 @@ for data in tqdm(data_loader, desc="Generating CAD Programs"):
 
 
 
-    print("-------------")
-    base_particle.compute_value()
+    base_particle.compute_value(cur_output_dir)
     base_particle.print_tree()
 
 

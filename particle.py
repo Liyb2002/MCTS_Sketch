@@ -87,22 +87,37 @@ class Particle():
         self.childNodes = []
 
 
-    def compute_value(self):
+    def compute_value(self, cur_output_dir_outerFolder):
         if not self.childNodes:
-            return self.value
+            computed_value = self.value  # Leaf node, return its stored value
+        else:
+            computed_value = sum(child.compute_value(cur_output_dir_outerFolder) * child.prob 
+                                for child in self.childNodes if child.prob > 0)
+            self.value = computed_value  # Update self.value
 
-        self.value = sum(child.compute_value() * child.prob for child in self.childNodes)
-        return self.value
+        # Save the computed value to JSON in the particle's directory
+        particle_data = {
+            "particle_id": self.particle_id,
+            "prob": self.prob,
+            "value": self.value,
+            "past_programs": self.past_programs
+        }
+
+        output_path = os.path.join(self.cur_output_dir, "particle_value.json")
+        with open(output_path, "w") as f:
+            json.dump(particle_data, f, indent=4)
+
+        return computed_value
 
 
     def print_tree(self):
         """Prints the value of the node and its children recursively."""
 
-        if self.cur_fidelity_score > 0.9:
+        # if self.cur_fidelity_score > 0.9:
 
-            print("Node id", self.particle_id, "has past program", self.past_programs, "has gt program", self.gt_program)
-            print("self.cur_fidelity_score", self.cur_fidelity_score)
-        # print("Node id", self.particle_id, "has prob", self.prob, "has program", self.past_programs, "has value", self.value)
+        #     print("Node id", self.particle_id, "has past program", self.past_programs, "has gt program", self.gt_program)
+        #     print("self.cur_fidelity_score", self.cur_fidelity_score)
+        print("Node id", self.particle_id, "has prob", self.prob, "has program", self.past_programs, "has value", self.value)
         for child in self.childNodes:
             child.print_tree()
 
@@ -256,6 +271,8 @@ class Particle():
         if self.current_op == 0:
             if self.cur_fidelity_score > 0.95:
                 self.value = 1
+            elif self.cur_fidelity_score > 0.9:
+                self.value = 0.5
                 
             self.leafNode = True
 
@@ -427,8 +444,6 @@ class Particle():
             new_fidelity_score = fidelity_score.compute_fidelity_score(self.gt_brep_file_path, os.path.join(brep_path, brep_files[-1]))
 
             if new_fidelity_score < self.cur_fidelity_score:
-                print("self.cur_fidelity_score", self.cur_fidelity_score)
-                print("new_fidelity_score", new_fidelity_score)
                 return None
             
             self.cur_fidelity_score = new_fidelity_score
