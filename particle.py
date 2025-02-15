@@ -71,6 +71,8 @@ class Particle():
         self.past_programs = [9]
         self.used_loops = -1
 
+        self.cur_fidelity_score = 0
+
 
         # Iteration infos
         self.selected_loop_indices = []
@@ -95,7 +97,12 @@ class Particle():
 
     def print_tree(self):
         """Prints the value of the node and its children recursively."""
-        print("Node id", self.particle_id, "has prob", self.prob, "has program", self.past_programs, "has value", self.value)
+
+        if self.cur_fidelity_score > 0.9:
+
+            print("Node id", self.particle_id, "has past program", self.past_programs, "has gt program", self.gt_program)
+            print("self.cur_fidelity_score", self.cur_fidelity_score)
+        # print("Node id", self.particle_id, "has prob", self.prob, "has program", self.past_programs, "has value", self.value)
         for child in self.childNodes:
             child.print_tree()
 
@@ -247,7 +254,9 @@ class Particle():
     def generate_next_step(self, params):
 
         if self.current_op == 0:
-            self.value = 1
+            if self.cur_fidelity_score > 0.95:
+                self.value = 1
+                
             self.leafNode = True
 
             return
@@ -407,6 +416,23 @@ class Particle():
 
     def reproduce(self):
         self.build_graph()
+
+        # check if able to reproduce
+        if self.particle_id != 0 and self.past_programs[-1] != 1:
+            cur_relative_output_dir = os.path.join(output_dir_name, f'data_{self.data_produced}', f'particle_{self.particle_id}')
+            brep_files = [file_name for file_name in os.listdir(os.path.join(cur_relative_output_dir, 'canvas'))
+                    if file_name.startswith('brep_') and file_name.endswith('.step')]
+            brep_files.sort(key=lambda x: int(x.split('_')[1].split('.')[0]))
+            brep_path = os.path.join(output_dir_name, f'data_{self.data_produced}', f'particle_{self.particle_id}', 'canvas')
+            new_fidelity_score = fidelity_score.compute_fidelity_score(self.gt_brep_file_path, os.path.join(brep_path, brep_files[-1]))
+
+            if new_fidelity_score < self.cur_fidelity_score:
+                print("self.cur_fidelity_score", self.cur_fidelity_score)
+                print("new_fidelity_score", new_fidelity_score)
+                return None
+            
+            self.cur_fidelity_score = new_fidelity_score
+
 
         possible_ops = [0, 1, 2, 3, 4]
         
