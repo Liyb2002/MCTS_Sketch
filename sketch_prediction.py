@@ -181,6 +181,10 @@ def train():
         graphs.append(gnn_graph)
         loop_selection_masks.append(loop_selection_mask)
 
+        if len(graphs)> 5000:
+            break
+
+
 
     print(f"Total number of preprocessed graphs: {len(graphs)}")
     # Split the dataset into training and validation sets (80-20 split)

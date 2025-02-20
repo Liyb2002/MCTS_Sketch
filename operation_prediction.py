@@ -186,10 +186,8 @@ def train():
         existing_programs.append(Encoders.helper.program_mapping(program[:-1], device))
         gt_programs.append(Encoders.helper.program_gt_mapping([program[-1]], device))
 
-        print("given program", program[:-1])
-        print("next token", program[-1])
-        if len(graphs) > 30000:
-            break
+        # if len(graphs) > 10000:
+        #     break
 
 
     print(f"Total number of preprocessed graphs: {len(graphs)}")
@@ -430,5 +428,4 @@ def eval():
 
 #---------------------------------- Public Functions ----------------------------------#
 
-
-eval()
+train()

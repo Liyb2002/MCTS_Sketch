@@ -162,6 +162,9 @@ def train():
         stroke_selection_masks.append(stroke_selection_matrix)
 
         # Encoders.helper.vis_selected_strokes(gnn_graph['stroke'].x.cpu().numpy(), chamfer_stroke_idx)
+        if len(graphs)> 10000:
+            break
+
 
 
     print(f"Total number of preprocessed graphs: {len(graphs)}")
@@ -282,6 +285,8 @@ def train():
             best_accuracy = val_accuracy
             print(f"New best accuracy: {best_accuracy:.4f}, saved model")
             save_models()
+        
+        
 
 
 
@@ -383,4 +388,4 @@ def eval():
 #---------------------------------- Public Functions ----------------------------------#
 
 
-eval()
+train()

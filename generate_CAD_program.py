@@ -16,7 +16,7 @@ import Encoders.gnn_stroke.gnn
 import Encoders.helper
 
 import particle
-# import whole_process_evaluate
+# import whole_process_evaluateo0
 
 from torch.utils.data import DataLoader
 from tqdm import tqdm
@@ -31,12 +31,16 @@ import numpy as np
 import random
 import copy
 import re
+import time
 
 from collections import deque
 
 
+
+
+
 # --------------------- Dataset --------------------- #
-dataset = Preprocessing.dataloader.Program_Graph_Dataset('dataset/test', return_data_path=True)
+dataset = Preprocessing.dataloader.Program_Graph_Dataset('dataset/whole', return_data_path=True)
 data_loader = DataLoader(dataset, batch_size=1, shuffle=True)
 
 
@@ -66,10 +70,25 @@ def compute_start_idx():
     return max(largest_number, 0)
 
 
+def handle_failed_program(cur_output_dir, data_produced):
+    """Removes everything in cur_output_dir and decrements data_produced if success_program is False."""
+    
+    # Check if directory exists
+    if os.path.exists(cur_output_dir):
+        # Remove all contents inside the directory
+        shutil.rmtree(cur_output_dir)
+        print(f"Removed all contents in {cur_output_dir}")
+
+    # Decrement data_produced
+    data_produced -= 1
+    print(f"data_produced decremented to {data_produced}")
+
+    return data_produced
+
 
 # --------------------- Main Code --------------------- #
 data_produced = compute_start_idx()
-data_limit = 50
+data_limit = 500
 if os.path.exists(os.path.join(output_dir, f'data_{data_produced}')):
     shutil.rmtree(os.path.join(output_dir, f'data_{data_produced}'))
 os.makedirs(os.path.join(output_dir, f'data_{data_produced}'), exist_ok=True)
@@ -79,7 +98,7 @@ print("data_produced", data_produced)
 for data in tqdm(data_loader, desc="Generating CAD Programs"):
     program, stroke_node_features, data_path= data
 
-    if data_produced >= data_limit:
+    if data_produced > data_limit:
         break
 
     if program[-1][0] != 'terminate':
@@ -98,7 +117,6 @@ for data in tqdm(data_loader, desc="Generating CAD Programs"):
     gt_brep_file_path = os.path.join(gt_brep_dir, brep_files[-1])
 
 
-
     base_particle = particle.Particle(gt_brep_file_path, data_produced, stroke_node_features.squeeze(0).cpu().numpy())
     base_particle.set_gt_program(program)
     base_particle.set_particle_id(0, cur_output_dir)
@@ -107,7 +125,6 @@ for data in tqdm(data_loader, desc="Generating CAD Programs"):
 
     reproducible_particles = [base_particle]
     num_states = 1
-
 
     while len(reproducible_particles) != 0:
         reproducible_particle = reproducible_particles.pop(0) 
@@ -118,6 +135,7 @@ for data in tqdm(data_loader, desc="Generating CAD Programs"):
             continue
 
         for op, prob, param in available_ops:
+
             new_particle = reproducible_particle.deepcopy_particle(num_states, prob)
             new_particle.current_op = op
             new_particle.generate_next_step(param)
@@ -130,12 +148,20 @@ for data in tqdm(data_loader, desc="Generating CAD Programs"):
             num_states += 1
 
 
-
+    print("Start Tree Computation")
     base_particle.compute_value(cur_output_dir)
     base_particle.print_tree()
+    success_program = base_particle.save_to_json(cur_output_dir)
+    base_particle.clean_tree()
+
+    if not success_program:
+        data_produced = handle_failed_program(cur_output_dir, data_produced)
 
 
 
 
 
     data_produced += 1
+
+
+

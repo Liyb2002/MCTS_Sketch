@@ -96,16 +96,17 @@ class Particle():
             self.value = computed_value  # Update self.value
 
         # Save the computed value to JSON in the particle's directory
-        particle_data = {
-            "particle_id": self.particle_id,
-            "prob": self.prob,
-            "value": self.value,
-            "past_programs": self.past_programs
-        }
+        if self.particle_id <= 100:
+            particle_data = {
+                "particle_id": self.particle_id,
+                "prob": self.prob,
+                "value": self.value,
+                "past_programs": self.past_programs
+            }
 
-        output_path = os.path.join(self.cur_output_dir, "particle_value.json")
-        with open(output_path, "w") as f:
-            json.dump(particle_data, f, indent=4)
+            output_path = os.path.join(self.cur_output_dir, "particle_value.json")
+            with open(output_path, "w") as f:
+                json.dump(particle_data, f, indent=4)
 
         return computed_value
 
@@ -116,10 +117,64 @@ class Particle():
         # if self.cur_fidelity_score > 0.9:
 
         #     print("Node id", self.particle_id, "has past program", self.past_programs, "has gt program", self.gt_program)
-        #     print("self.cur_fidelity_score", self.cur_fidelity_score)
+        print("self.cur_fidelity_score", self.cur_fidelity_score)
         print("Node id", self.particle_id, "has prob", self.prob, "has program", self.past_programs, "has value", self.value)
+        print("-----------------")
         for child in self.childNodes:
             child.print_tree()
+
+
+    def clean_tree(self):
+        """Recursively removes folders where particle_id > 100 and prunes childNodes."""
+        # First, clean children before deleting self to avoid accessing deleted nodes
+        self.childNodes = [child for child in self.childNodes if child.particle_id <= 100]
+        for child in self.childNodes:
+            child.clean_tree()
+        
+        # Remove the folder if particle_id > 100
+        if self.particle_id > 100 and os.path.exists(self.cur_output_dir):
+            shutil.rmtree(self.cur_output_dir)
+            print(f"Removed: {self.cur_output_dir}")
+
+
+    def to_dict(self):
+        """Converts the tree node and its children into a dictionary format."""
+        return {
+            "particle_id": self.particle_id,
+            "prob": self.prob,
+            "past_programs": self.past_programs,
+            "value": self.value,
+            "children": [child.to_dict() for child in self.childNodes]  # Recursively convert children
+        }
+
+
+    def save_to_json(self, output_directory, filename="tree.json"):
+        """Saves the tree structure to a JSON file in the specified directory.
+        
+        Returns:
+        - False if the root node (particle_id = 0) has value 0.
+        - True if saved successfully.
+        """
+        # Check if this is the root node and if its value is 0
+        if self.particle_id == 0 and self.value == 0:
+            print("Root node has value 0. Aborting save.")
+            return False  # Stop execution
+        
+        tree_dict = self.to_dict()  # Convert the tree to a dictionary
+        
+        # Ensure directory exists
+        os.makedirs(output_directory, exist_ok=True)
+        
+        # Define the full file path
+        file_path = os.path.join(output_directory, filename)
+        
+        # Write to JSON file
+        with open(file_path, "w", encoding="utf-8") as json_file:
+            json.dump(tree_dict, json_file, indent=4)
+        
+        print(f"Tree saved successfully to {file_path}")
+        return True
+
 
 
     def mark_off_new_strokes(self, stroke_to_loop):
@@ -634,41 +689,6 @@ def program_prediction(gnn_graph, past_programs):
     return new_probabilities
 
 
-# --------------------- Stroke Type Prediction Network --------------------- #
-strokeType_graph_encoder = Encoders.gnn.gnn.SemanticModule()
-strokeType_graph_decoder= Encoders.gnn.gnn.Stroke_type_Decoder()
-strokeType_dir = os.path.join(current_dir, 'checkpoints', 'stroke_type_prediction')
-strokeType_graph_encoder.eval()
-strokeType_graph_decoder.eval()
-strokeType_graph_encoder.load_state_dict(torch.load(os.path.join(strokeType_dir, 'graph_encoder.pth'), weights_only=True))
-strokeType_graph_decoder.load_state_dict(torch.load(os.path.join(strokeType_dir, 'graph_decoder.pth'), weights_only=True))
-
-
-def do_stroke_type_prediction(gnn_graph):
-    x_dict = strokeType_graph_encoder(gnn_graph.x_dict, gnn_graph.edge_index_dict)
-    output_mask = strokeType_graph_decoder(x_dict)
-
-    predicted_stroke_idx = (output_mask > 0.5).nonzero(as_tuple=True)[0]  # Indices of chosen strokes
-    # Encoders.helper.vis_selected_strokes(gnn_graph['stroke'].x.cpu().numpy(), predicted_stroke_idx)
-    return output_mask
-
-
-
-# --------------------- Fidelity Score --------------------- #
-fidelity_graph_encoder = Encoders.gnn.gnn.SemanticModule()
-fidelity_graph_decoder= Encoders.gnn.gnn.Fidelity_Decoder()
-fidelity_dir = os.path.join(current_dir, 'checkpoints', 'fidelity_prediction')
-fidelity_graph_encoder.eval()
-fidelity_graph_decoder.eval()
-fidelity_graph_encoder.load_state_dict(torch.load(os.path.join(fidelity_dir, 'graph_encoder.pth'), weights_only=True))
-fidelity_graph_decoder.load_state_dict(torch.load(os.path.join(fidelity_dir, 'graph_decoder.pth'), weights_only=True))
-
-
-def do_fidelity_score_prediction(gnn_graph):
-    x_dict = fidelity_graph_encoder(gnn_graph.x_dict, gnn_graph.edge_index_dict)
-    output_logits = fidelity_graph_decoder(x_dict, True)
-    predicted_bin = torch.argmax(output_logits, dim=1)
-    return predicted_bin.item()
 
 
 # --------------------- Cascade Brep Features --------------------- #

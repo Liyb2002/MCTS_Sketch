@@ -141,6 +141,9 @@ def train():
         stroke_selection_masks.append(stroke_selection_matrix)
 
         # Encoders.helper.vis_selected_strokes(gnn_graph['stroke'].x.cpu().numpy(), fillet_stroke_idx)
+        if len(graphs)> 5000:
+            break
+
 
 
     print(f"Total number of preprocessed graphs: {len(graphs)}")

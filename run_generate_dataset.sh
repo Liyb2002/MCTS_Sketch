@@ -1,17 +1,18 @@
 #!/bin/bash
 
-# Loop until the Python script runs successfully
 while true; do
-    echo "Running generate_dataset.py..."
-    
-    # Run the Python script
-    python generate_CAD_program.py
-    
-    # Check the exit status of the Python script
+    echo "Running generate_CAD_program.py with a 5-minute limit..."
+
+    # Run the Python script with a 5-minute timeout
+    timeout 300 python generate_CAD_program.py
+
+    # Check exit status
     if [ $? -eq 0 ]; then
         echo "Script completed successfully."
-        break  # Exit the loop if the script runs without error
+        break  # Exit loop if script finishes successfully
     else
-        echo "Script failed. Retrying..."
+        echo "Script timed out or failed. Restarting..."
     fi
+
+    sleep 2  # Optional: Pause for 2 seconds before restarting
 done

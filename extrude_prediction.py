@@ -173,6 +173,10 @@ def train():
         # Encoders.helper.vis_selected_strokes(gnn_graph['stroke'].x.cpu().numpy(), sketch_stroke_idx)
         # Encoders.helper.vis_selected_strokes(gnn_graph['stroke'].x.cpu().numpy(), extrude_stroke_idx)
 
+        if len(graphs)> 10000:
+            break
+
+
 
     print(f"Total number of preprocessed graphs: {len(graphs)}")
 
