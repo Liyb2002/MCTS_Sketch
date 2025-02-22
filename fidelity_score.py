@@ -19,13 +19,15 @@ def read_step(filepath):
         print(f"Error reading STEP file: {filepath}, {e}")
         return None
 
-def sample_points_from_shape(shape, tolerance=0.01, sample_density=100):
+def sample_points_from_shape(shape, tolerance=0.01, sample_density=100, max_iter=100):
     """
     Samples points from the surface of the shape using a given tolerance.
+    Ensures while loops terminate within max_iter iterations per step.
     """
     if shape is None:
         print("Shape is None, skipping sampling.")
         return []
+    
     try:
         # Generate a mesh
         BRepMesh_IncrementalMesh(shape, tolerance)
@@ -46,13 +48,18 @@ def sample_points_from_shape(shape, tolerance=0.01, sample_density=100):
             v_step = (vmax - vmin) / sample_density
 
             u = umin
-            while u <= umax:
+            u_iter = 0  # Track iterations
+            while u <= umax and u_iter < max_iter:
                 v = vmin
-                while v <= vmax:
+                v_iter = 0  # Track iterations for v-loop
+                while v <= vmax and v_iter < max_iter:
                     point = adaptor.Value(u, v)
                     points.append((point.X(), point.Y(), point.Z()))
                     v += v_step
+                    v_iter += 1  # Increment iteration count for v-loop
                 u += u_step
+                u_iter += 1  # Increment iteration count for u-loop
+                
             explorer.Next()
         return points
     except Exception as e:

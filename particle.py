@@ -487,54 +487,66 @@ class Particle():
 
 
     def reproduce(self):
-        self.build_graph()
-
-        # check if able to reproduce
-        if self.particle_id != 0 and self.past_programs[-1] != 1:
-            cur_relative_output_dir = os.path.join(output_dir_name, f'data_{self.data_produced}', f'particle_{self.particle_id}')
-            brep_files = [file_name for file_name in os.listdir(os.path.join(cur_relative_output_dir, 'canvas'))
-                    if file_name.startswith('brep_') and file_name.endswith('.step')]
-            brep_files.sort(key=lambda x: int(x.split('_')[1].split('.')[0]))
-            brep_path = os.path.join(output_dir_name, f'data_{self.data_produced}', f'particle_{self.particle_id}', 'canvas')
-            new_fidelity_score = fidelity_score.compute_fidelity_score(self.gt_brep_file_path, os.path.join(brep_path, brep_files[-1]))
-
-            if new_fidelity_score < self.cur_fidelity_score:
-                return None
-            
-            self.cur_fidelity_score = new_fidelity_score
-
-
-        possible_ops = [0, 1, 2, 3, 4]
-        
-        # Get probabilities for each operation
-        probs = program_prediction(self.gnn_graph, self.past_programs)
-
-        # Get the list of available operations
-        available_ops = [op for op in possible_ops if op not in self.non_available_ops()]
-        available_probs = [probs[op] for op in available_ops]
-        
-        # Filter valid operations with probability >= 0.02
-        valid_ops = [(op, prob, None) for op, prob in zip(available_ops, available_probs) if prob >= 0.02]
-
-        # Store expanded valid operations
+    
         expanded_valid_ops = []
+        
+        try:
+            self.build_graph()
 
-        # Sample params for valid_ops
-        for op, prob, _ in valid_ops:
-            param_pairs = []
+            # Check if able to reproduce
+            if self.particle_id != 0 and self.past_programs[-1] != 1:
+                cur_relative_output_dir = os.path.join(output_dir_name, f'data_{self.data_produced}', f'particle_{self.particle_id}')
+                
+                # Get brep files
+                brep_files = [
+                    file_name for file_name in os.listdir(os.path.join(cur_relative_output_dir, 'canvas'))
+                    if file_name.startswith('brep_') and file_name.endswith('.step')
+                ]
+                brep_files.sort(key=lambda x: int(x.split('_')[1].split('.')[0]))
 
-            if op == 1:
-                param_pairs = predict_sketch(self.gnn_graph)  # Get sketch params
-            elif op == 2:
-                param_pairs = predict_extrude(self.gnn_graph, self.sketch_selection_mask, self.sketch_points, self.brep_edges)  # Get extrude params
+                brep_path = os.path.join(output_dir_name, f'data_{self.data_produced}', f'particle_{self.particle_id}', 'canvas')
+                new_fidelity_score = fidelity_score.compute_fidelity_score(
+                    self.gt_brep_file_path, os.path.join(brep_path, brep_files[-1])
+                )
 
-            if param_pairs:
-                for params, pair_prob in param_pairs:
-                    expanded_valid_ops.append((op, prob * pair_prob, params))  # Multiply probabilities
-            else:
-                expanded_valid_ops.append((op, prob, None))  # Keep as is for other ops
+                if new_fidelity_score < self.cur_fidelity_score:
+                    return []
+                
+                self.cur_fidelity_score = new_fidelity_score
 
-        return expanded_valid_ops  # Return filtered and expanded list of (operation, probability, params)
+            possible_ops = [0, 1, 2, 3, 4]
+
+            # Get probabilities for each operation
+            probs = program_prediction(self.gnn_graph, self.past_programs)
+
+            # Get the list of available operations
+            available_ops = [op for op in possible_ops if op not in self.non_available_ops()]
+            available_probs = [probs[op] for op in available_ops]
+            
+            # Filter valid operations with probability >= 0.02
+            valid_ops = [(op, prob, None) for op, prob in zip(available_ops, available_probs) if prob >= 0.02]
+
+
+            # Sample params for valid_ops
+            for op, prob, _ in valid_ops:
+                param_pairs = []
+
+                if op == 1:
+                    param_pairs = predict_sketch(self.gnn_graph)  # Get sketch params
+                elif op == 2:
+                    param_pairs = predict_extrude(self.gnn_graph, self.sketch_selection_mask, self.sketch_points, self.brep_edges)  # Get extrude params
+
+                if param_pairs:
+                    for params, pair_prob in param_pairs:
+                        expanded_valid_ops.append((op, prob * pair_prob, params))  # Multiply probabilities
+                else:
+                    expanded_valid_ops.append((op, prob, None))  # Keep as is for other ops
+
+            return expanded_valid_ops  # Return filtered and expanded list of (operation, probability, params)
+        
+        except Exception as e:
+            print(f"Error in reproduce: {e}")
+            return []
 
 
 

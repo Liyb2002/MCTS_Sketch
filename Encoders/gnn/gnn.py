@@ -115,7 +115,7 @@ class Chamfer_Decoder(nn.Module):
 
 
 class Fidelity_Decoder(nn.Module):
-    def __init__(self, hidden_channels=256, num_bins=10, num_loop_nodes=400, num_stroke_nodes=400):
+    def __init__(self, hidden_channels=256, num_loop_nodes=400, num_stroke_nodes=400):
         super(Fidelity_Decoder, self).__init__()
 
         # Decoders for loop and stroke embeddings
@@ -126,7 +126,7 @@ class Fidelity_Decoder(nn.Module):
             nn.Linear(hidden_channels, 64),
             nn.ReLU(inplace=True),
             nn.Dropout(p=0.1),
-            nn.Linear(64, num_bins)  # Output logits for each bin
+            nn.Linear(64, 1)  # Single output for continuous prediction
         )
 
         self.stroke_decoder = nn.Sequential(
@@ -136,64 +136,62 @@ class Fidelity_Decoder(nn.Module):
             nn.Linear(hidden_channels, 64),
             nn.ReLU(inplace=True),
             nn.Dropout(p=0.1),
-            nn.Linear(64, num_bins)  # Output logits for each bin
+            nn.Linear(64, 1)  # Single output for continuous prediction
         )
 
         self.num_loop_nodes = num_loop_nodes
         self.num_stroke_nodes = num_stroke_nodes
 
-    def forward(self, x_dict, for_particle = False):
-
+    def forward(self, x_dict, for_particle=False):
         if not for_particle: 
-            # Extract embeddings
-            loop_embeddings = x_dict['loop']  # Shape: [batch_size * num_loop_nodes, feature_dim]
-            stroke_embeddings = x_dict['stroke']  # Shape: [batch_size * num_stroke_nodes, feature_dim]
+            loop_embeddings = x_dict['loop']
+            stroke_embeddings = x_dict['stroke']
 
-            # if loop_embeddings or stroke_embeddings has shape just one size, compute and reshape it to [batch_size * num_loop_nodes, feature_dim]
             # Compute batch size dynamically
-            batch_size = loop_embeddings.size(0) // self.num_loop_nodes  # Calculate from loop embeddings
-            feature_dim = loop_embeddings.size(-1)  # Feature dimension (e.g., 128)
+            batch_size = loop_embeddings.size(0) // self.num_loop_nodes
+            feature_dim = loop_embeddings.size(-1)
 
-            # Reshape embeddings to separate batch and node dimensions
-            loop_embeddings = loop_embeddings.view(batch_size, self.num_loop_nodes, feature_dim)  # Shape: [batch_size, num_loop_nodes, feature_dim]
-            stroke_embeddings = stroke_embeddings.view(batch_size, self.num_stroke_nodes, feature_dim)  # Shape: [batch_size, num_stroke_nodes, feature_dim]
+            # Reshape embeddings
+            loop_embeddings = loop_embeddings.view(batch_size, self.num_loop_nodes, feature_dim)
+            stroke_embeddings = stroke_embeddings.view(batch_size, self.num_stroke_nodes, feature_dim)
         else:
-            loop_embeddings = x_dict['loop']  # Shape: [batch_size * num_loop_nodes, feature_dim]
-            stroke_embeddings = x_dict['stroke']  # Shape: [batch_size * num_stroke_nodes, feature_dim]
-            feature_dim = loop_embeddings.size(-1)  # Assuming loop_embeddings and stroke_embeddings have the same feature_dim
+            loop_embeddings = x_dict['loop']
+            stroke_embeddings = x_dict['stroke']
+            feature_dim = loop_embeddings.size(-1)
 
-            # Padding loop_embeddings
+            # Pad loop_embeddings
             if loop_embeddings.size(0) < self.num_loop_nodes:
                 padding_size = self.num_loop_nodes - loop_embeddings.size(0)
-                loop_embeddings = F.pad(loop_embeddings, (0, 0, 0, padding_size))  # Pad along the node dimension
+                loop_embeddings = F.pad(loop_embeddings, (0, 0, 0, padding_size))
             else:
-                loop_embeddings = loop_embeddings[:self.num_loop_nodes]  # Truncate if more than 400 nodes
+                loop_embeddings = loop_embeddings[:self.num_loop_nodes]
 
-            # Padding stroke_embeddings
+            # Pad stroke_embeddings
             if stroke_embeddings.size(0) < self.num_stroke_nodes:
                 padding_size = self.num_stroke_nodes - stroke_embeddings.size(0)
-                stroke_embeddings = F.pad(stroke_embeddings, (0, 0, 0, padding_size))  # Pad along the node dimension
+                stroke_embeddings = F.pad(stroke_embeddings, (0, 0, 0, padding_size))
             else:
-                stroke_embeddings = stroke_embeddings[:self.num_stroke_nodes]  # Truncate if more than 400 nodes
+                stroke_embeddings = stroke_embeddings[:self.num_stroke_nodes]
 
             # Reshape to batch_size=1
-            loop_embeddings = loop_embeddings.unsqueeze(0)  # Shape: [1, 400, 128]
-            stroke_embeddings = stroke_embeddings.unsqueeze(0)  # Shape: [1, 400, 128]
+            loop_embeddings = loop_embeddings.unsqueeze(0)
+            stroke_embeddings = stroke_embeddings.unsqueeze(0)
+
+        # Decode each node separately
+        loop_scores = self.loop_decoder(loop_embeddings)  # Shape: [batch_size, num_loop_nodes, 1]
+        stroke_scores = self.stroke_decoder(stroke_embeddings)  # Shape: [batch_size, num_stroke_nodes, 1]
+
+        # Average over all nodes instead of summing (to normalize output scale)
+        loop_graph_score = loop_scores.mean(dim=1)  # Shape: [batch_size, 1]
+        stroke_graph_score = stroke_scores.mean(dim=1)  # Shape: [batch_size, 1]
+
+        # Combine scores from loops and strokes
+        combined_score = (loop_graph_score + stroke_graph_score) / 2  # Shape: [batch_size, 1]
+
+        # Ensure output is in [0, 1] range
+        return torch.sigmoid(combined_score)
 
 
-
-        # Decode logits for each node
-        loop_logits = self.loop_decoder(loop_embeddings)  # Shape: [batch_size, num_loop_nodes, num_bins]
-        stroke_logits = self.stroke_decoder(stroke_embeddings)  # Shape: [batch_size, num_stroke_nodes, num_bins]
-
-        # Aggregate logits across nodes for each graph in the batch (sum across node dimension)
-        loop_graph_logits = loop_logits.sum(dim=1)  # Shape: [batch_size, num_bins]
-        stroke_graph_logits = stroke_logits.sum(dim=1)  # Shape: [batch_size, num_bins]
-
-        # Combine logits from loop and stroke nodes
-        combined_logits = loop_graph_logits + stroke_graph_logits  # Shape: [batch_size, num_bins]
-
-        return combined_logits  # Return raw logits for CrossEntropyLoss
 
 
 
@@ -339,4 +337,3 @@ def entropy_penalty(logits):
     probs = torch.softmax(logits, dim=-1)
     entropy = -torch.sum(probs * torch.log(probs + 1e-8), dim=-1)
     return entropy.mean()
-
