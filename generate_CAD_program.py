@@ -46,7 +46,7 @@ data_loader = DataLoader(dataset, batch_size=1, shuffle=True)
 
 # --------------------- Directory --------------------- #
 current_dir = os.getcwd()
-output_dir = os.path.join(current_dir, 'program_output_dataset')
+output_dir = os.path.join(current_dir, 'MCTS_dataset')
 
 
 
@@ -88,7 +88,7 @@ def handle_failed_program(cur_output_dir, data_produced):
 
 # --------------------- Main Code --------------------- #
 data_produced = compute_start_idx()
-data_limit = 1000
+data_limit = 1
 if os.path.exists(os.path.join(output_dir, f'data_{data_produced}')):
     shutil.rmtree(os.path.join(output_dir, f'data_{data_produced}'))
 os.makedirs(os.path.join(output_dir, f'data_{data_produced}'), exist_ok=True)
@@ -127,6 +127,10 @@ for data in tqdm(data_loader, desc="Generating CAD Programs"):
     num_states = 1
 
     while len(reproducible_particles) != 0:
+
+        if num_states > 100:
+            break
+
         reproducible_particle = reproducible_particles.pop(0) 
 
         available_ops = reproducible_particle.reproduce()
@@ -142,20 +146,13 @@ for data in tqdm(data_loader, desc="Generating CAD Programs"):
 
             reproducible_particle.childNodes.append(new_particle)
 
-            if not new_particle.leafNode:
-                reproducible_particles.append(new_particle)
+            reproducible_particles.append(new_particle)
 
             num_states += 1
 
 
     print("Start Tree Computation")
-    base_particle.compute_value(cur_output_dir)
     base_particle.print_tree()
-    success_program = base_particle.save_to_json(cur_output_dir)
-    base_particle.clean_tree()
-
-    if not success_program:
-        data_produced = handle_failed_program(cur_output_dir, data_produced)
 
 
 

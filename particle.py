@@ -79,7 +79,7 @@ class Particle():
 
         # Particle State
         self.particle_id = 1
-        self.leafNode = False
+        self.leafNode = True
         self.prob = 1
 
         self.value = 0
@@ -117,8 +117,7 @@ class Particle():
         # if self.cur_fidelity_score > 0.9:
 
         #     print("Node id", self.particle_id, "has past program", self.past_programs, "has gt program", self.gt_program)
-        print("self.cur_fidelity_score", self.cur_fidelity_score)
-        print("Node id", self.particle_id, "has prob", self.prob, "has program", self.past_programs, "has value", self.value)
+        print("self.leafNode", self.leafNode)
         print("-----------------")
         for child in self.childNodes:
             child.print_tree()
@@ -264,6 +263,8 @@ class Particle():
 
     def deepcopy_particle(self, new_id, prob):
 
+        self.leafNode= False
+
         new_particle = copy.copy(self)
         
         # manual copy, because we have tensors
@@ -295,6 +296,7 @@ class Particle():
         # Tree info
         new_particle.childNodes = []
         new_particle.prob = prob
+        new_particle.leafNode = True
 
 
         # Update Node tree info
@@ -556,7 +558,7 @@ class Particle():
 
 # --------------------- Directory --------------------- #
 current_dir = os.getcwd()
-output_dir_name = 'program_output_dataset'
+output_dir_name = 'MCTS_dataset'
 output_dir = os.path.join(current_dir, output_dir_name)
 
 

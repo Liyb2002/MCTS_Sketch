@@ -1,0 +1,798 @@
+[
+    {
+        "operation": [
+            "sketch",
+            [
+                [
+                    -4.10230016708374,
+                    3.596400022506714,
+                    -1.020400047302246
+                ],
+                [
+                    -0.9251000285148621,
+                    3.596400022506714,
+                    -1.020400047302246
+                ],
+                [
+                    -0.9251000285148621,
+                    9.373200416564941,
+                    -1.020400047302246
+                ],
+                [
+                    -4.10230016708374,
+                    9.373200416564941,
+                    -1.020400047302246
+                ]
+            ]
+        ],
+        "faces": [
+            {
+                "id": "face_0_0",
+                "vertices": [
+                    "vertex_0_0",
+                    "vertex_0_1",
+                    "vertex_0_2",
+                    "vertex_0_3"
+                ],
+                "normal": [
+                    1,
+                    0,
+                    0
+                ]
+            }
+        ],
+        "edges": [
+            {
+                "id": "edge_0_0",
+                "vertices": [
+                    "vertex_0_0",
+                    "vertex_0_1"
+                ]
+            },
+            {
+                "id": "edge_0_1",
+                "vertices": [
+                    "vertex_0_1",
+                    "vertex_0_2"
+                ]
+            },
+            {
+                "id": "edge_0_2",
+                "vertices": [
+                    "vertex_0_2",
+                    "vertex_0_3"
+                ]
+            },
+            {
+                "id": "edge_0_3",
+                "vertices": [
+                    "vertex_0_3",
+                    "vertex_0_0"
+                ]
+            }
+        ],
+        "vertices": [
+            {
+                "id": "vertex_0_0",
+                "coordinates": [
+                    -4.10230016708374,
+                    3.596400022506714,
+                    -1.020400047302246
+                ]
+            },
+            {
+                "id": "vertex_0_1",
+                "coordinates": [
+                    -0.9251000285148621,
+                    3.596400022506714,
+                    -1.020400047302246
+                ]
+            },
+            {
+                "id": "vertex_0_2",
+                "coordinates": [
+                    -0.9251000285148621,
+                    9.373200416564941,
+                    -1.020400047302246
+                ]
+            },
+            {
+                "id": "vertex_0_3",
+                "coordinates": [
+                    -4.10230016708374,
+                    9.373200416564941,
+                    -1.020400047302246
+                ]
+            }
+        ]
+    },
+    {
+        "operation": [
+            "extrude",
+            "face_0_0",
+            -7.534299850463867
+        ],
+        "faces": [
+            {
+                "id": "face_1_0",
+                "vertices": [
+                    "vertex_1_0",
+                    "vertex_1_1",
+                    "vertex_1_2",
+                    "vertex_1_3"
+                ],
+                "normal": [
+                    -1,
+                    0,
+                    0
+                ]
+            },
+            {
+                "id": "face_1_0",
+                "vertices": [
+                    "vertex_0_0",
+                    "vertex_1_0",
+                    "vertex_1_1",
+                    "vertex_0_1"
+                ],
+                "normal": [
+                    0,
+                    -1,
+                    0
+                ]
+            },
+            {
+                "id": "face_1_1",
+                "vertices": [
+                    "vertex_0_1",
+                    "vertex_1_1",
+                    "vertex_1_2",
+                    "vertex_0_2"
+                ],
+                "normal": [
+                    1,
+                    0,
+                    0
+                ]
+            },
+            {
+                "id": "face_1_2",
+                "vertices": [
+                    "vertex_0_2",
+                    "vertex_1_2",
+                    "vertex_1_3",
+                    "vertex_0_3"
+                ],
+                "normal": [
+                    0,
+                    1,
+                    0
+                ]
+            },
+            {
+                "id": "face_1_3",
+                "vertices": [
+                    "vertex_0_3",
+                    "vertex_1_3",
+                    "vertex_1_0",
+                    "vertex_0_0"
+                ],
+                "normal": [
+                    -1,
+                    0,
+                    0
+                ]
+            }
+        ],
+        "edges": [
+            {
+                "id": "edge_1_0",
+                "vertices": [
+                    "vertex_1_0",
+                    "vertex_1_1"
+                ]
+            },
+            {
+                "id": "edge_1_1",
+                "vertices": [
+                    "vertex_1_1",
+                    "vertex_1_2"
+                ]
+            },
+            {
+                "id": "edge_1_2",
+                "vertices": [
+                    "vertex_1_2",
+                    "vertex_1_3"
+                ]
+            },
+            {
+                "id": "edge_1_3",
+                "vertices": [
+                    "vertex_1_3",
+                    "vertex_1_0"
+                ]
+            },
+            {
+                "id": "edge_1_4",
+                "vertices": [
+                    "vertex_0_0",
+                    "vertex_1_0"
+                ]
+            },
+            {
+                "id": "edge_1_5",
+                "vertices": [
+                    "vertex_0_1",
+                    "vertex_1_1"
+                ]
+            },
+            {
+                "id": "edge_1_6",
+                "vertices": [
+                    "vertex_0_2",
+                    "vertex_1_2"
+                ]
+            },
+            {
+                "id": "edge_1_7",
+                "vertices": [
+                    "vertex_0_3",
+                    "vertex_1_3"
+                ]
+            }
+        ],
+        "vertices": [
+            {
+                "id": "vertex_1_0",
+                "coordinates": [
+                    -4.10230016708374,
+                    3.596400022506714,
+                    6.513899803161621
+                ]
+            },
+            {
+                "id": "vertex_1_1",
+                "coordinates": [
+                    -0.9251000285148621,
+                    3.596400022506714,
+                    6.513899803161621
+                ]
+            },
+            {
+                "id": "vertex_1_2",
+                "coordinates": [
+                    -0.9251000285148621,
+                    9.373200416564941,
+                    6.513899803161621
+                ]
+            },
+            {
+                "id": "vertex_1_3",
+                "coordinates": [
+                    -4.10230016708374,
+                    9.373200416564941,
+                    6.513899803161621
+                ]
+            }
+        ]
+    },
+    {
+        "operation": [
+            "extrude",
+            "face_1_3",
+            -3.1772000789642334
+        ],
+        "faces": [
+            {
+                "id": "face_2_0",
+                "vertices": [
+                    "vertex_2_0",
+                    "vertex_2_1",
+                    "vertex_2_2",
+                    "vertex_2_3"
+                ],
+                "normal": [
+                    1,
+                    0,
+                    0
+                ]
+            },
+            {
+                "id": "face_2_0",
+                "vertices": [
+                    "vertex_0_3",
+                    "vertex_2_0",
+                    "vertex_2_1",
+                    "vertex_1_3"
+                ],
+                "normal": [
+                    0,
+                    1,
+                    0
+                ]
+            },
+            {
+                "id": "face_2_1",
+                "vertices": [
+                    "vertex_1_3",
+                    "vertex_2_1",
+                    "vertex_2_2",
+                    "vertex_1_0"
+                ],
+                "normal": [
+                    0,
+                    0,
+                    1
+                ]
+            },
+            {
+                "id": "face_2_2",
+                "vertices": [
+                    "vertex_1_0",
+                    "vertex_2_2",
+                    "vertex_2_3",
+                    "vertex_0_0"
+                ],
+                "normal": [
+                    0,
+                    -1,
+                    0
+                ]
+            },
+            {
+                "id": "face_2_3",
+                "vertices": [
+                    "vertex_0_0",
+                    "vertex_2_3",
+                    "vertex_2_0",
+                    "vertex_0_3"
+                ],
+                "normal": [
+                    0,
+                    0,
+                    -1
+                ]
+            }
+        ],
+        "edges": [
+            {
+                "id": "edge_2_0",
+                "vertices": [
+                    "vertex_2_0",
+                    "vertex_2_1"
+                ]
+            },
+            {
+                "id": "edge_2_1",
+                "vertices": [
+                    "vertex_2_1",
+                    "vertex_2_2"
+                ]
+            },
+            {
+                "id": "edge_2_2",
+                "vertices": [
+                    "vertex_2_2",
+                    "vertex_2_3"
+                ]
+            },
+            {
+                "id": "edge_2_3",
+                "vertices": [
+                    "vertex_2_3",
+                    "vertex_2_0"
+                ]
+            },
+            {
+                "id": "edge_2_4",
+                "vertices": [
+                    "vertex_0_3",
+                    "vertex_2_0"
+                ]
+            },
+            {
+                "id": "edge_2_5",
+                "vertices": [
+                    "vertex_1_3",
+                    "vertex_2_1"
+                ]
+            },
+            {
+                "id": "edge_2_6",
+                "vertices": [
+                    "vertex_1_0",
+                    "vertex_2_2"
+                ]
+            },
+            {
+                "id": "edge_2_7",
+                "vertices": [
+                    "vertex_0_0",
+                    "vertex_2_3"
+                ]
+            }
+        ],
+        "vertices": [
+            {
+                "id": "vertex_2_0",
+                "coordinates": [
+                    -0.9251000881195068,
+                    9.373200416564941,
+                    -1.020400047302246
+                ]
+            },
+            {
+                "id": "vertex_2_1",
+                "coordinates": [
+                    -0.9251000881195068,
+                    9.373200416564941,
+                    6.513899803161621
+                ]
+            },
+            {
+                "id": "vertex_2_2",
+                "coordinates": [
+                    -0.9251000881195068,
+                    3.596400022506714,
+                    6.513899803161621
+                ]
+            },
+            {
+                "id": "vertex_2_3",
+                "coordinates": [
+                    -0.9251000881195068,
+                    3.596400022506714,
+                    -1.020400047302246
+                ]
+            }
+        ]
+    },
+    {
+        "operation": [
+            "extrude",
+            "face_2_3",
+            -7.534299850463867
+        ],
+        "faces": [
+            {
+                "id": "face_3_0",
+                "vertices": [
+                    "vertex_3_0",
+                    "vertex_3_1",
+                    "vertex_3_2",
+                    "vertex_3_3"
+                ],
+                "normal": [
+                    0,
+                    0,
+                    1
+                ]
+            },
+            {
+                "id": "face_3_0",
+                "vertices": [
+                    "vertex_0_0",
+                    "vertex_3_0",
+                    "vertex_3_1",
+                    "vertex_2_3"
+                ],
+                "normal": [
+                    0,
+                    -1,
+                    0
+                ]
+            },
+            {
+                "id": "face_3_1",
+                "vertices": [
+                    "vertex_2_3",
+                    "vertex_3_1",
+                    "vertex_3_2",
+                    "vertex_2_0"
+                ],
+                "normal": [
+                    0,
+                    0,
+                    0
+                ]
+            },
+            {
+                "id": "face_3_2",
+                "vertices": [
+                    "vertex_2_0",
+                    "vertex_3_2",
+                    "vertex_3_3",
+                    "vertex_0_3"
+                ],
+                "normal": [
+                    0,
+                    1,
+                    0
+                ]
+            },
+            {
+                "id": "face_3_3",
+                "vertices": [
+                    "vertex_0_3",
+                    "vertex_3_3",
+                    "vertex_3_0",
+                    "vertex_0_0"
+                ],
+                "normal": [
+                    0,
+                    0,
+                    0
+                ]
+            }
+        ],
+        "edges": [
+            {
+                "id": "edge_3_0",
+                "vertices": [
+                    "vertex_3_0",
+                    "vertex_3_1"
+                ]
+            },
+            {
+                "id": "edge_3_1",
+                "vertices": [
+                    "vertex_3_1",
+                    "vertex_3_2"
+                ]
+            },
+            {
+                "id": "edge_3_2",
+                "vertices": [
+                    "vertex_3_2",
+                    "vertex_3_3"
+                ]
+            },
+            {
+                "id": "edge_3_3",
+                "vertices": [
+                    "vertex_3_3",
+                    "vertex_3_0"
+                ]
+            },
+            {
+                "id": "edge_3_4",
+                "vertices": [
+                    "vertex_0_0",
+                    "vertex_3_0"
+                ]
+            },
+            {
+                "id": "edge_3_5",
+                "vertices": [
+                    "vertex_2_3",
+                    "vertex_3_1"
+                ]
+            },
+            {
+                "id": "edge_3_6",
+                "vertices": [
+                    "vertex_2_0",
+                    "vertex_3_2"
+                ]
+            },
+            {
+                "id": "edge_3_7",
+                "vertices": [
+                    "vertex_0_3",
+                    "vertex_3_3"
+                ]
+            }
+        ],
+        "vertices": [
+            {
+                "id": "vertex_3_0",
+                "coordinates": [
+                    3.431999683380127,
+                    3.596400022506714,
+                    6.513899803161621
+                ]
+            },
+            {
+                "id": "vertex_3_1",
+                "coordinates": [
+                    6.60919976234436,
+                    3.596400022506714,
+                    6.513899803161621
+                ]
+            },
+            {
+                "id": "vertex_3_2",
+                "coordinates": [
+                    6.60919976234436,
+                    9.373200416564941,
+                    6.513899803161621
+                ]
+            },
+            {
+                "id": "vertex_3_3",
+                "coordinates": [
+                    3.431999683380127,
+                    9.373200416564941,
+                    6.513899803161621
+                ]
+            }
+        ]
+    },
+    {
+        "operation": [
+            "extrude",
+            "face_3_3",
+            -4.357099533081055
+        ],
+        "faces": [
+            {
+                "id": "face_4_0",
+                "vertices": [
+                    "vertex_4_0",
+                    "vertex_4_1",
+                    "vertex_4_2",
+                    "vertex_4_3"
+                ],
+                "normal": [
+                    0,
+                    0,
+                    0
+                ]
+            },
+            {
+                "id": "face_4_0",
+                "vertices": [
+                    "vertex_0_3",
+                    "vertex_4_0",
+                    "vertex_4_1",
+                    "vertex_3_3"
+                ],
+                "normal": [
+                    0,
+                    1,
+                    0
+                ]
+            },
+            {
+                "id": "face_4_1",
+                "vertices": [
+                    "vertex_3_3",
+                    "vertex_4_1",
+                    "vertex_4_2",
+                    "vertex_3_0"
+                ],
+                "normal": [
+                    0,
+                    0,
+                    1
+                ]
+            },
+            {
+                "id": "face_4_2",
+                "vertices": [
+                    "vertex_3_0",
+                    "vertex_4_2",
+                    "vertex_4_3",
+                    "vertex_0_0"
+                ],
+                "normal": [
+                    0,
+                    -1,
+                    0
+                ]
+            },
+            {
+                "id": "face_4_3",
+                "vertices": [
+                    "vertex_0_0",
+                    "vertex_4_3",
+                    "vertex_4_0",
+                    "vertex_0_3"
+                ],
+                "normal": [
+                    0,
+                    0,
+                    -1
+                ]
+            }
+        ],
+        "edges": [
+            {
+                "id": "edge_4_0",
+                "vertices": [
+                    "vertex_4_0",
+                    "vertex_4_1"
+                ]
+            },
+            {
+                "id": "edge_4_1",
+                "vertices": [
+                    "vertex_4_1",
+                    "vertex_4_2"
+                ]
+            },
+            {
+                "id": "edge_4_2",
+                "vertices": [
+                    "vertex_4_2",
+                    "vertex_4_3"
+                ]
+            },
+            {
+                "id": "edge_4_3",
+                "vertices": [
+                    "vertex_4_3",
+                    "vertex_4_0"
+                ]
+            },
+            {
+                "id": "edge_4_4",
+                "vertices": [
+                    "vertex_0_3",
+                    "vertex_4_0"
+                ]
+            },
+            {
+                "id": "edge_4_5",
+                "vertices": [
+                    "vertex_3_3",
+                    "vertex_4_1"
+                ]
+            },
+            {
+                "id": "edge_4_6",
+                "vertices": [
+                    "vertex_3_0",
+                    "vertex_4_2"
+                ]
+            },
+            {
+                "id": "edge_4_7",
+                "vertices": [
+                    "vertex_0_0",
+                    "vertex_4_3"
+                ]
+            }
+        ],
+        "vertices": [
+            {
+                "id": "vertex_4_0",
+                "coordinates": [
+                    -8.459399700164795,
+                    9.373200416564941,
+                    -1.020400047302246
+                ]
+            },
+            {
+                "id": "vertex_4_1",
+                "coordinates": [
+                    -0.9250998497009277,
+                    9.373200416564941,
+                    6.513899803161621
+                ]
+            },
+            {
+                "id": "vertex_4_2",
+                "coordinates": [
+                    -0.9250998497009277,
+                    3.596400022506714,
+                    6.513899803161621
+                ]
+            },
+            {
+                "id": "vertex_4_3",
+                "coordinates": [
+                    -8.459399700164795,
+                    3.596400022506714,
+                    -1.020400047302246
+                ]
+            }
+        ]
+    },
+    {
+        "operation": [
+            "terminate"
+        ]
+    }
+]
