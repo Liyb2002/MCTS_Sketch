@@ -124,11 +124,12 @@ for data in tqdm(data_loader, desc="Generating CAD Programs"):
 
 
     reproducible_particles = [base_particle]
+    all_particles = [base_particle]
     num_states = 1
 
     while len(reproducible_particles) != 0:
 
-        if num_states > 100:
+        if num_states > 10:
             break
 
         reproducible_particle = reproducible_particles.pop(0) 
@@ -147,12 +148,25 @@ for data in tqdm(data_loader, desc="Generating CAD Programs"):
             reproducible_particle.childNodes.append(new_particle)
 
             reproducible_particles.append(new_particle)
+            all_particles.append(new_particle)
 
             num_states += 1
 
 
-    print("Start Tree Computation")
-    base_particle.print_tree()
+    # Now we need to find the leafNodes
+    leafNodes_list = []
+    for tree_node in all_particles:
+        if tree_node.leafNode:
+            leafNodes_list.append(tree_node)
+
+
+    print("start rollout")
+    # For all leafNodes, sample solutions
+    for leaf_node in leafNodes_list:
+        leaf_node.sample_tree()
+        
+    # print("Start Tree Computation")
+    # base_particle.print_tree()
 
 
 

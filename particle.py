@@ -382,7 +382,6 @@ class Particle():
             # 5.3) Write to brep
             self.cur__brep_class.write_to_json(self.cur_output_dir)
 
-
             # 5.4) Read the program and produce the brep file
             parsed_program_class = Preprocessing.proc_CAD.Program_to_STL.parsed_program(self.file_path, self.cur_output_dir)
             parsed_program_class.read_json_file()
@@ -445,11 +444,16 @@ class Particle():
             # 8) Update past_programs
             self.past_programs.append(self.current_op)
 
+            return True
+
                 
         except Exception as e:
             print("exception:", e)
             self.value = 0 
             self.leafNode = True
+
+
+            return False
 
 
 
@@ -549,6 +553,52 @@ class Particle():
         except Exception as e:
             print(f"Error in reproduce: {e}")
             return []
+
+
+    def sample_tree(self):
+        self.sampling_prob = 1
+        while True:
+
+            try:
+                
+                # print("len(self.past_programs):", len(self.past_programs), "len(self.gt_program):", len(self.gt_program))
+
+
+                if len(self.past_programs) > len(self.gt_program) or self.current_op == 0:
+                    break
+                
+                self.build_graph()
+                
+                # sample the next operation
+                operation_probs = program_prediction(self.gnn_graph, self.past_programs)
+                operation_probs = np.array(operation_probs)
+                operation_probs /= operation_probs.sum()
+                op_idx = np.random.choice(len(operation_probs), p=operation_probs)
+                op_prob = operation_probs[op_idx]
+                self.sampling_prob = self.sampling_prob * op_prob
+
+
+                # Prepare params
+                if op_idx == 1:
+                    params, pair_prob = predict_sketch(self.gnn_graph)[0]  # Get sketch params
+                elif op_idx == 2:
+                    params, pair_prob = predict_extrude(self.gnn_graph, self.sketch_selection_mask, self.sketch_points, self.brep_edges)[0]  # Get extrude params
+                else:
+                    params, pair_prob = None, 1
+                    self.sampling_prob = self.sampling_prob * pair_prob
+
+
+                success_gen_next_step = self.generate_next_step(params)
+
+                if not success_gen_next_step:
+                    break
+
+
+
+            except Exception as e:
+                print(f"Error in reproduce: {e}")
+                break
+
 
 
 

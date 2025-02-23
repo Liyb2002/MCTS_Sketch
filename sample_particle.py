@@ -23,6 +23,7 @@ from tqdm import tqdm
 
 import copy
 import json
+from collections import Counter
 
 import pickle
 import torch
@@ -50,7 +51,7 @@ class Particle():
 
         self.data_produced = data_produced
 
-        self.brep_edges = torch.zeros(0)
+        self.brep_edges = torch.zeros(0).numpy()
         self.brep_loops = []
         self.cur__brep_class = Preprocessing.proc_CAD.generate_program.Brep()
 
@@ -68,20 +69,187 @@ class Particle():
 
         self.current_op = 1
         self.past_programs = [9]
+        self.used_loops = -1
+
+        self.cur_fidelity_score = 0
 
 
         # Iteration infos
         self.selected_loop_indices = []
 
         # Particle State
-        self.valid_particle = True
-        self.success_terminate = False
-        self.score = 1
-        self.used_loops = -1
+        self.particle_id = 1
+        self.leafNode = True
+        self.prob = 1
+
+        self.value = 0
+        self.prob = 1
+        self.childNodes = []
 
 
-        # Feature_strokes
-        self.predicted_feature_strokes = None
+    def compute_value(self, cur_output_dir_outerFolder):
+        if not self.childNodes:
+            computed_value = self.value  # Leaf node, return its stored value
+        else:
+            computed_value = sum(child.compute_value(cur_output_dir_outerFolder) * child.prob 
+                                for child in self.childNodes if child.prob > 0)
+            self.value = computed_value  # Update self.value
+
+        # Save the computed value to JSON in the particle's directory
+        if self.particle_id <= 100:
+            particle_data = {
+                "particle_id": self.particle_id,
+                "prob": self.prob,
+                "value": self.value,
+                "past_programs": self.past_programs
+            }
+
+            output_path = os.path.join(self.cur_output_dir, "particle_value.json")
+            with open(output_path, "w") as f:
+                json.dump(particle_data, f, indent=4)
+
+        return computed_value
+
+
+    def print_tree(self):
+        """Prints the value of the node and its children recursively."""
+
+        # if self.cur_fidelity_score > 0.9:
+
+        #     print("Node id", self.particle_id, "has past program", self.past_programs, "has gt program", self.gt_program)
+        print("self.leafNode", self.leafNode)
+        print("-----------------")
+        for child in self.childNodes:
+            child.print_tree()
+
+
+    def clean_tree(self):
+        """Recursively removes folders where particle_id > 100 and prunes childNodes."""
+        # First, clean children before deleting self to avoid accessing deleted nodes
+        self.childNodes = [child for child in self.childNodes if child.particle_id <= 100]
+        for child in self.childNodes:
+            child.clean_tree()
+        
+        # Remove the folder if particle_id > 100
+        if self.particle_id > 100 and os.path.exists(self.cur_output_dir):
+            shutil.rmtree(self.cur_output_dir)
+            print(f"Removed: {self.cur_output_dir}")
+
+
+    def to_dict(self):
+        """Converts the tree node and its children into a dictionary format."""
+        return {
+            "particle_id": self.particle_id,
+            "prob": self.prob,
+            "past_programs": self.past_programs,
+            "value": self.value,
+            "children": [child.to_dict() for child in self.childNodes]  # Recursively convert children
+        }
+
+
+    def save_to_json(self, output_directory, filename="tree.json"):
+        """Saves the tree structure to a JSON file in the specified directory.
+        
+        Returns:
+        - False if the root node (particle_id = 0) has value 0.
+        - True if saved successfully.
+        """
+        # Check if this is the root node and if its value is 0
+        if self.particle_id == 0 and self.value == 0:
+            print("Root node has value 0. Aborting save.")
+            return False  # Stop execution
+        
+        tree_dict = self.to_dict()  # Convert the tree to a dictionary
+        
+        # Ensure directory exists
+        os.makedirs(output_directory, exist_ok=True)
+        
+        # Define the full file path
+        file_path = os.path.join(output_directory, filename)
+        
+        # Write to JSON file
+        with open(file_path, "w", encoding="utf-8") as json_file:
+            json.dump(tree_dict, json_file, indent=4)
+        
+        print(f"Tree saved successfully to {file_path}")
+        return True
+
+
+
+    def mark_off_new_strokes(self, stroke_to_loop):
+
+        brep_loops_used = np.any(stroke_to_loop == 1, axis=0)
+        new_loops_mark_off = np.sum(brep_loops_used)
+
+        if self.used_loops == -1 and self.used_loops == -1:
+            self.used_loops = new_loops_mark_off
+            return True
+        
+        if self.used_loops < new_loops_mark_off:
+            self.used_loops = new_loops_mark_off
+            return True
+        
+        self.used_loops = new_loops_mark_off
+        return False
+
+
+
+    def available_ops(self):
+        # Define operation mapping
+        op_mapping = {
+            "terminate": 0,
+            "sketch": 1,
+            "extrude": 2,
+            "fillet": 3,
+            "chamfer": 4
+        }
+
+        # Count occurrences in ground truth program
+        gt_counts = Counter(self.gt_program)
+        
+        # Count occurrences in past programs
+        used_counts = Counter(self.past_programs)
+
+        # Compute available operations
+        available_ops = [op for op in gt_counts if used_counts[op] < gt_counts[op]]
+
+        # Convert named operations (if needed) to numbers
+        available_ops_numeric = [op_mapping[op[0]] if isinstance(op, tuple) and len(op) == 1 else op_mapping[op] for op in available_ops]
+        
+        return available_ops_numeric  # Ensure it matches the numeric format
+
+
+    def non_available_ops(self):
+        failed_ops = set()
+
+        possible_ops = {0, 1, 2, 3, 4}
+
+        # Get available operations
+        available_ops = set(self.available_ops())  
+
+        # program start : only sketch 
+        if len(self.past_programs) == 1:
+            failed_ops.update([0, 2, 3, 4])
+
+        # only extrude after sketch
+        if self.past_programs[-1] == 1:
+            failed_ops.update([0, 1, 3, 4])
+        
+        # no extrude after extrude
+        if self.past_programs[-1] == 2:
+            failed_ops.update([2])
+
+        # if program len > gt_program len
+        if len(self.past_programs) > len(self.gt_program):
+            failed_ops.update([1, 2, 3, 4])
+
+        if len(self.past_programs) < len(self.gt_program)-1:
+            failed_ops.update([0])
+
+        # Add any operation that is NOT in available_ops
+        failed_ops.update(possible_ops - available_ops)
+
+        return list(failed_ops)  # Convert back to list
 
 
 
@@ -93,7 +261,9 @@ class Particle():
         self.file_path = os.path.join(self.cur_output_dir, 'Program.json')
 
 
-    def deepcopy_particle(self, new_id):
+    def deepcopy_particle(self, new_id, prob):
+
+        self.leafNode= False
 
         new_particle = copy.copy(self)
         
@@ -111,10 +281,6 @@ class Particle():
         new_particle.current_op = self.current_op
         new_particle.past_programs = self.past_programs[:]
         new_particle.selected_loop_indices = self.selected_loop_indices[:]
-        new_particle.valid_particle = self.valid_particle
-        new_particle.success_terminate = self.success_terminate
-        new_particle.score = self.score
-        new_particle.predicted_feature_strokes = (self.predicted_feature_strokes.clone() if self.predicted_feature_strokes is not None else None)
         new_particle.gt_program = self.gt_program
 
 
@@ -125,7 +291,15 @@ class Particle():
         new_particle.particle_id = new_id
         new_particle.cur_output_dir = new_folder_path
         new_particle.file_path = os.path.join(new_folder_path, 'Program.json')
-        new_particle.valid_particle = True
+
+
+        # Tree info
+        new_particle.childNodes = []
+        new_particle.prob = prob
+        new_particle.leafNode = True
+
+
+        # Update Node tree info
 
         return new_particle
 
@@ -135,15 +309,6 @@ class Particle():
 
 
     def program_terminated(self, gnn_graph):
-
-        # if self.predicted_feature_strokes is None:
-        #     return False
-        
-        # termination_prob, untouched_feature_idx= whole_process_helper.helper.sample_program_termination(gnn_graph['stroke'].x.cpu().numpy(), self.predicted_feature_strokes)
-        # # Encoders.helper.vis_selected_strokes(gnn_graph['stroke'].x.cpu().numpy(), [])
-
-        # if random.random() < termination_prob or len(self.past_programs) > 20: 
-        #     return True
         
         if (len(self.gt_program) == len(self.past_programs)):
             stroke_features_file = os.path.join(self.cur_output_dir, 'stroke_cloud_features.json')
@@ -155,97 +320,37 @@ class Particle():
                     json_file.write("\n")
 
         return len(self.gt_program) == len(self.past_programs)
-        
-
-
-    def particle_score(self):
-        return self.score
-    
-
-    def is_valid_particle(self):
-        return self.valid_particle
-
-
-    def mark_off_new_strokes(self, stroke_to_loop):
-
-        brep_loops_used = np.any(stroke_to_loop == 1, axis=0)
-        new_loops_mark_off = np.sum(brep_loops_used)
-
-        print("new_loops_mark_off", new_loops_mark_off)
-        print("self.used_loops", self.used_loops)
-
-        if self.used_loops == -1 and self.used_loops == -1:
-            self.used_loops = new_loops_mark_off
-            return True
-        
-        if self.used_loops < new_loops_mark_off:
-            self.used_loops = new_loops_mark_off
-            return True
-        
-        self.used_loops = new_loops_mark_off
-        return False
+            
 
         
+    def generate_next_step(self, params):
 
-    def generate_next_step(self):
+        if self.current_op == 0:
+            if self.cur_fidelity_score > 0.95:
+                self.value = 1
+            elif self.cur_fidelity_score > 0.9:
+                self.value = 0.5
+                
+            self.leafNode = True
+
+            return
 
         try:
 
-            stroke_to_loop_lines = Preprocessing.proc_CAD.helper.stroke_to_brep(self.stroke_cloud_loops, self.brep_loops, self.stroke_node_features, self.brep_edges)
-            stroke_to_loop_circle = Preprocessing.proc_CAD.helper.stroke_to_brep_circle(self.stroke_cloud_loops, self.brep_loops, self.stroke_node_features, self.brep_edges)
-            stroke_to_loop = Preprocessing.proc_CAD.helper.union_matrices(stroke_to_loop_lines, stroke_to_loop_circle)
-
-            stroke_to_edge_lines = Preprocessing.proc_CAD.helper.stroke_to_edge(self.stroke_node_features, self.brep_edges)
-            stroke_to_edge_circle = Preprocessing.proc_CAD.helper.stroke_to_edge_circle(self.stroke_node_features, self.brep_edges)
-            stroke_to_edge = Preprocessing.proc_CAD.helper.union_matrices(stroke_to_edge_lines, stroke_to_edge_circle)
-
-
-            stroke_to_loop = Preprocessing.proc_CAD.helper.union_matrices(stroke_to_loop_lines, stroke_to_loop_circle)
-            stroke_to_edge = Preprocessing.proc_CAD.helper.union_matrices(stroke_to_edge_lines, stroke_to_edge_circle)
-
-
-            # 2) Build graph
-            gnn_graph = Preprocessing.gnn_graph.SketchLoopGraph(
-                self.stroke_cloud_loops, 
-                self.stroke_node_features, 
-                self.strokes_perpendicular, 
-                self.loop_neighboring_vertical, 
-                self.loop_neighboring_horizontal, 
-                self.loop_neighboring_contained,
-                stroke_to_loop,
-                stroke_to_edge
-            )
-
-
-            # Encoders.helper.vis_brep(self.brep_edges)
-            # Encoders.helper.vis_left_graph(gnn_graph['stroke'].x.cpu().numpy())
-            # Encoders.helper.vis_left_graph_loops(gnn_graph['stroke'].x.cpu().numpy(), gnn_graph['loop'].x.cpu().numpy(), self.stroke_cloud_loops)
-            
             if self.past_programs[-1] != 2:
-                self.mark_off_new_strokes(stroke_to_loop)
+                self.mark_off_new_strokes(self.stroke_to_loop)
             else:
-                if not self.mark_off_new_strokes(stroke_to_loop):
-                    self.remove_particle()
-                    print("No new feature added")
-                    self.valid_particle = False
+                if not self.mark_off_new_strokes(self.stroke_to_loop):
+                    self.value = 0
+                    self.leafNode = True
                     return
 
 
 
-            # compute particle score
-            self.fidelity_score = do_fidelity_score_prediction(gnn_graph)
-            # print("predicted fidelity_score", self.fidelity_score)
-
-            if len(self.past_programs) == 1:
-                # Find all feature edges
-                self.predicted_feature_strokes = do_stroke_type_prediction(gnn_graph)
-
-
             if self.current_op == 1:
                 print("Build sketch")
-                self.sketch_selection_mask, self.sketch_points, normal, selected_loop_idx, prob = do_sketch(gnn_graph)
+                self.sketch_selection_mask, self.sketch_points, normal, selected_loop_idx = params
                 self.selected_loop_indices.append(selected_loop_idx)
-                self.score = self.score * prob
                 if self.sketch_points.shape[0] == 1:
                     # do circle sketch
                     self.cur__brep_class.regular_sketch_circle(self.sketch_points[0, 3:6].tolist(), self.sketch_points[0, 7].item(), self.sketch_points[0, :3].tolist())
@@ -256,24 +361,22 @@ class Particle():
             # Build Extrude
             if self.current_op == 2:
                 print("Build extrude")
-                extrude_target_point, prob = do_extrude(gnn_graph, self.sketch_selection_mask, self.sketch_points, self.brep_edges)
-                self.cur__brep_class.extrude_op(extrude_target_point)
-                self.score = self.score * prob
+                extrude_target_point = params[0]
+                mode = params[1]
+                self.cur__brep_class.extrude_op(extrude_target_point, mode)
 
 
             # Build fillet
             if self.current_op == 3:
                 print("Build Fillet")
-                fillet_edge, fillet_amount, prob = do_fillet(gnn_graph, self.brep_edges)
+                fillet_edge, fillet_amount, prob = do_fillet(self.gnn_graph, self.brep_edges)
                 self.cur__brep_class.random_fillet(fillet_edge, fillet_amount)
-                self.score = self.score * prob
 
 
             if self.current_op ==4:
                 print("Build Chamfer")
-                chamfer_edge, chamfer_amount, prob= do_chamfer(gnn_graph, self.brep_edges)
+                chamfer_edge, chamfer_amount, prob= do_chamfer(self.gnn_graph, self.brep_edges)
                 self.cur__brep_class.random_chamfer(chamfer_edge, chamfer_amount)
-                self.score = self.score * prob
 
 
             # 5.3) Write to brep
@@ -287,6 +390,13 @@ class Particle():
 
             # 5.5) Read brep file
             cur_relative_output_dir = os.path.join(output_dir_name, f'data_{self.data_produced}', f'particle_{self.particle_id}')
+            canvas_dir = os.path.join(cur_relative_output_dir, 'canvas')
+
+            # Remove all .stl files in the canvas directory
+            for file_name in os.listdir(canvas_dir):
+                if file_name.endswith('.stl'):
+                    file_path = os.path.join(canvas_dir, file_name)
+                    os.remove(file_path)
 
             brep_files = [file_name for file_name in os.listdir(os.path.join(cur_relative_output_dir, 'canvas'))
                     if file_name.startswith('brep_') and file_name.endswith('.step')]
@@ -294,33 +404,24 @@ class Particle():
 
 
             # 5.6) Update brep data
-            prev_brep_edges = self.brep_edges
             brep_path = os.path.join(output_dir_name, f'data_{self.data_produced}', f'particle_{self.particle_id}', 'canvas')
             self.brep_edges, self.brep_loops = cascade_brep(brep_files, self.data_produced, brep_path)
             # self.brep_loops = Preprocessing.proc_CAD.helper.remove_duplicate_circle_breps(self.brep_loops, self.brep_edges)
 
 
-            # Compute Chamfer Distance
-            # cur_fidelity_score = fidelity_score.compute_fidelity_score(self.gt_brep_file_path, os.path.join(brep_path, brep_files[-1]))
-            cur_fidelity_score = -1
-
-            self.past_programs.append(self.current_op)
-            self.current_op, op_prob = program_prediction(gnn_graph, self.past_programs)
-            self.score = self.score * op_prob
-
-
-            print("----------------")
-            print("self.past_programs", self.past_programs)
-            print("self.gt_program", self.gt_program)
-            print("self.current_op", self.current_op)
 
             # 6) Write the stroke_cloud data to pkl file
+            # Remove all non lasting .pkl files in the canvas directory
+            for file_name in os.listdir(canvas_dir):
+                if file_name.endswith('.pkl'):
+                    file_path = os.path.join(canvas_dir, file_name)
+                    os.remove(file_path)
+
             output_file_path = os.path.join(self.cur_output_dir, 'canvas', f'{len(brep_files)-1}_eval_info.pkl')
             with open(output_file_path, 'wb') as f:
                 pickle.dump({
                     'stroke_node_features': self.stroke_node_features,
                     'gt_brep_edges': self.gt_brep_edges,
-                    'cur_fidelity_score' : cur_fidelity_score, 
 
                     'stroke_cloud_loops': self.stroke_cloud_loops, 
 
@@ -331,49 +432,25 @@ class Particle():
                     'loop_neighboring_horizontal': self.loop_neighboring_horizontal,
                     'loop_neighboring_contained': self.loop_neighboring_contained,
 
-                    'stroke_to_loop': stroke_to_loop,
-                    'stroke_to_edge': stroke_to_edge
+                    'stroke_to_loop': self.stroke_to_loop,
+                    'stroke_to_edge': self.stroke_to_edge
 
                 }, f)
             
 
-            # 7) Also copy the gt brep file
-            gt_brep_folder = os.path.dirname(self.gt_brep_file_path)
-
-            # Create a new folder called gt_canvas in self.cur_output_dir
-            gt_canvas_dir = os.path.join(self.cur_output_dir, 'gt_canvas')
-            os.makedirs(gt_canvas_dir, exist_ok=True)
-
-            # Copy everything from gt_brep_folder to gt_canvas
-            for item in os.listdir(gt_brep_folder):
-                source_item = os.path.join(gt_brep_folder, item)
-                dest_item = os.path.join(gt_canvas_dir, item)
-                
-                if os.path.isdir(source_item):
-                    shutil.copytree(source_item, dest_item, dirs_exist_ok=True)
-                else:
-                    shutil.copy2(source_item, dest_item)
-            
+            # 7) Also copy the gt brep.step
             shutil.copy(self.gt_brep_file_path, os.path.join(self.cur_output_dir, 'gt_brep.step'))
 
-            whole_process_helper.helper.brep_to_stl_and_copy(self.gt_brep_file_path, self.cur_output_dir,os.path.join(self.cur_output_dir, 'gt_brep.step'))
+
+            # 8) Update past_programs
+            self.past_programs.append(self.current_op)
 
                 
         except Exception as e:
-            print(f"An error occurred: {e}")
-            print("error building")
-            self.valid_particle = False
-            
-            if len(self.past_programs) > 8 and random.random() > 0.5:
-                self.success_terminate = True
-            else:
-                self.remove_particle()
+            print("exception:", e)
+            self.value = 0 
+            self.leafNode = True
 
-
-        if self.current_op == 0:
-            # do a final check
-            self.correct_termination_check()
-            return 
 
 
     def get_gt_brep_history(self):
@@ -384,40 +461,98 @@ class Particle():
         self.gt_final_brep_edges = get_final_brep(brep_path, brep_files[-1])
 
 
+    def build_graph(self):
+        stroke_to_loop_lines = Preprocessing.proc_CAD.helper.stroke_to_brep(self.stroke_cloud_loops, self.brep_loops, self.stroke_node_features, self.brep_edges)
+        stroke_to_loop_circle = Preprocessing.proc_CAD.helper.stroke_to_brep_circle(self.stroke_cloud_loops, self.brep_loops, self.stroke_node_features, self.brep_edges)
+        stroke_to_loop = Preprocessing.proc_CAD.helper.union_matrices(stroke_to_loop_lines, stroke_to_loop_circle)
 
-    def remove_particle(self):
-        shutil.rmtree(self.cur_output_dir)
-
-
-    def correct_termination_check(self):
-        if self.past_programs[-1] != 2 and len(self.past_programs) > 3:
-            self.valid_particle = False
-            self.success_terminate = True
-            return 
+        stroke_to_edge_lines = Preprocessing.proc_CAD.helper.stroke_to_edge(self.stroke_node_features, self.brep_edges)
+        stroke_to_edge_circle = Preprocessing.proc_CAD.helper.stroke_to_edge_circle(self.stroke_node_features, self.brep_edges)
+        stroke_to_edge = Preprocessing.proc_CAD.helper.union_matrices(stroke_to_edge_lines, stroke_to_edge_circle)
 
 
-        if self.past_programs[-1] == 1 or len(self.past_programs) < 3:
-            self.remove_particle()
-            self.valid_particle = False
-            return 
+        self.stroke_to_loop = Preprocessing.proc_CAD.helper.union_matrices(stroke_to_loop_lines, stroke_to_loop_circle)
+        self.stroke_to_edge = Preprocessing.proc_CAD.helper.union_matrices(stroke_to_edge_lines, stroke_to_edge_circle)
 
-        else:
-            stroke_to_loop_lines = Preprocessing.proc_CAD.helper.stroke_to_brep(self.stroke_cloud_loops, self.brep_loops, self.stroke_node_features, self.brep_edges)
-            stroke_to_loop_circle = Preprocessing.proc_CAD.helper.stroke_to_brep_circle(self.stroke_cloud_loops, self.brep_loops, self.stroke_node_features, self.brep_edges)
-            stroke_to_loop = Preprocessing.proc_CAD.helper.union_matrices(stroke_to_loop_lines, stroke_to_loop_circle)
-            stroke_to_loop = Preprocessing.proc_CAD.helper.union_matrices(stroke_to_loop_lines, stroke_to_loop_circle)
 
-            if not self.mark_off_new_strokes(stroke_to_loop):
-                self.remove_particle()
-                print("No new feature added")
-                self.valid_particle = False
-                return
+        # 2) Build graph
+        self.gnn_graph = Preprocessing.gnn_graph.SketchLoopGraph(
+            self.stroke_cloud_loops, 
+            self.stroke_node_features, 
+            self.strokes_perpendicular, 
+            self.loop_neighboring_vertical, 
+            self.loop_neighboring_horizontal, 
+            self.loop_neighboring_contained,
+            self.stroke_to_loop,
+            self.stroke_to_edge
+        )
 
-            self.valid_particle = False
-            self.success_terminate = True
 
-        return 
+    def reproduce(self):
+    
+        expanded_valid_ops = []
+        
+        try:
+            self.build_graph()
 
+            # Check if able to reproduce
+            if self.particle_id != 0 and self.past_programs[-1] != 1:
+                cur_relative_output_dir = os.path.join(output_dir_name, f'data_{self.data_produced}', f'particle_{self.particle_id}')
+                
+                # Get brep files
+                brep_files = [
+                    file_name for file_name in os.listdir(os.path.join(cur_relative_output_dir, 'canvas'))
+                    if file_name.startswith('brep_') and file_name.endswith('.step')
+                ]
+                brep_files.sort(key=lambda x: int(x.split('_')[1].split('.')[0]))
+
+                brep_path = os.path.join(output_dir_name, f'data_{self.data_produced}', f'particle_{self.particle_id}', 'canvas')
+                new_fidelity_score = fidelity_score.compute_fidelity_score(
+                    self.gt_brep_file_path, os.path.join(brep_path, brep_files[-1])
+                )
+
+                if new_fidelity_score < self.cur_fidelity_score:
+                    return []
+                
+                self.cur_fidelity_score = new_fidelity_score
+
+            possible_ops = [0, 1, 2, 3, 4]
+
+            # Get probabilities for each operation
+            probs = program_prediction(self.gnn_graph, self.past_programs)
+
+            # Get the list of available operations
+            available_ops = [op for op in possible_ops if op not in self.non_available_ops()]
+            available_probs = [probs[op] for op in available_ops]
+            
+            # Filter valid operations with probability >= 0.02
+            valid_ops = [(op, prob, None) for op, prob in zip(available_ops, available_probs) if prob >= 0.02]
+
+
+            # Sample params for valid_ops
+            for op, prob, _ in valid_ops:
+                param_pairs = []
+
+                if op == 1:
+                    param_pairs = predict_sketch(self.gnn_graph)  # Get sketch params
+                elif op == 2:
+                    param_pairs = predict_extrude(self.gnn_graph, self.sketch_selection_mask, self.sketch_points, self.brep_edges)  # Get extrude params
+
+                if param_pairs:
+                    for params, pair_prob in param_pairs:
+                        expanded_valid_ops.append((op, prob * pair_prob, params))  # Multiply probabilities
+                else:
+                    expanded_valid_ops.append((op, prob, None))  # Keep as is for other ops
+
+            return expanded_valid_ops  # Return filtered and expanded list of (operation, probability, params)
+        
+        except Exception as e:
+            print(f"Error in reproduce: {e}")
+            return []
+
+
+    def sample_tree(self):
+        while self.current_op != 
 
 
 # ---------------------------------------------------------------------------------------------------------------------------------- #
@@ -426,7 +561,7 @@ class Particle():
 
 # --------------------- Directory --------------------- #
 current_dir = os.getcwd()
-output_dir_name = 'program_output_dataset'
+output_dir_name = 'MCTS_dataset'
 output_dir = os.path.join(current_dir, output_dir_name)
 
 
@@ -444,21 +579,20 @@ def predict_sketch(gnn_graph):
     x_dict = sketch_graph_encoder(gnn_graph.x_dict, gnn_graph.edge_index_dict)
     sketch_selection_mask = sketch_graph_decoder(x_dict)
 
-    selected_loop_idx, idx_prob = whole_process_helper.helper.find_valid_sketch(gnn_graph, sketch_selection_mask)
-    sketch_stroke_idx = Encoders.helper.find_selected_strokes_from_loops(gnn_graph['stroke', 'represents', 'loop'].edge_index, selected_loop_idx)
+    valid_pairs = whole_process_helper.helper.find_valid_sketch(gnn_graph, sketch_selection_mask)
 
-    # Encoders.helper.vis_selected_strokes(gnn_graph['stroke'].x.cpu().numpy(), sketch_stroke_idx)
+    updated_pairs = []  # List to store (tuple, final_prob)
 
-    return selected_loop_idx, sketch_selection_mask, idx_prob
+    for selected_loop_idx, final_prob in valid_pairs:
+        sketch_points = whole_process_helper.helper.extract_unique_points(selected_loop_idx[0], gnn_graph)
+        normal = [1, 0, 0]
+        cur_sketch_selection_mask = whole_process_helper.helper.clean_mask(sketch_selection_mask, selected_loop_idx)
 
-def do_sketch(gnn_graph):
-    selected_loop_idx, sketch_selection_mask, idx_prob= predict_sketch(gnn_graph)
-    sketch_points = whole_process_helper.helper.extract_unique_points(selected_loop_idx[0], gnn_graph)
+        # Append the required tuple format
+        # format: [([param1, param2], prob), ([param1, param2], prob), ([param1, param2], prob)]
+        updated_pairs.append(([cur_sketch_selection_mask, sketch_points, normal, selected_loop_idx], final_prob))
 
-    normal = [1, 0, 0]
-    sketch_selection_mask = whole_process_helper.helper.clean_mask(sketch_selection_mask, selected_loop_idx)
-    return sketch_selection_mask, sketch_points, normal, selected_loop_idx, idx_prob
-
+    return updated_pairs
 
 # --------------------- Extrude Network --------------------- #
 extrude_graph_encoder = Encoders.gnn.gnn.SemanticModule()
@@ -469,24 +603,20 @@ extrude_graph_decoder.eval()
 extrude_graph_encoder.load_state_dict(torch.load(os.path.join(extrude_dir, 'graph_encoder.pth'), weights_only=True))
 extrude_graph_decoder.load_state_dict(torch.load(os.path.join(extrude_dir, 'graph_decoder.pth'), weights_only=True))
 
-def predict_extrude(gnn_graph, sketch_selection_mask):
+def predict_extrude(gnn_graph, sketch_selection_mask, sketch_points, brep_edges):
     gnn_graph.set_select_sketch(sketch_selection_mask)
 
     x_dict = extrude_graph_encoder(gnn_graph.x_dict, gnn_graph.edge_index_dict)
     extrude_selection_mask = extrude_graph_decoder(x_dict)
     
-    extrude_stroke_idx =  (extrude_selection_mask >= 0.5).nonzero(as_tuple=True)[0]
-    # _, extrude_stroke_idx = torch.max(extrude_selection_mask, dim=0)
-    # Encoders.helper.vis_selected_strokes(gnn_graph['stroke'].x.cpu().numpy(), extrude_stroke_idx)
-    return extrude_selection_mask
+    param_pairs = whole_process_helper.helper.get_extrude_amount(gnn_graph, extrude_selection_mask, sketch_points, brep_edges)
 
-def do_extrude(gnn_graph, sketch_selection_mask, sketch_points, brep_edges):
-    extrude_selection_mask = predict_extrude(gnn_graph, sketch_selection_mask)
-    extrude_target_point, selected_prob= whole_process_helper.helper.get_extrude_amount(gnn_graph, extrude_selection_mask, sketch_points, brep_edges)
+    expanded_param_pairs = []
+    for params, pair_prob in param_pairs:
+        expanded_param_pairs.append(([params, "subtraction"], pair_prob))
+        expanded_param_pairs.append(([params, "addition"], pair_prob))
 
-    return extrude_target_point, selected_prob
-
-
+    return expanded_param_pairs
 
 # --------------------- Fillet Network --------------------- #
 fillet_graph_encoder = Encoders.gnn.gnn.SemanticModule()
@@ -572,45 +702,10 @@ def program_prediction(gnn_graph, past_programs):
     x_dict = operation_graph_encoder(gnn_graph.x_dict, gnn_graph.edge_index_dict)
     output = operation_graph_decoder(x_dict, past_programs)
 
-    predicted_class, class_prob = whole_process_helper.helper.sample_operation(output)
-    return predicted_class, class_prob
+    new_probabilities = whole_process_helper.helper.sample_operation(output)
+    return new_probabilities
 
 
-# --------------------- Stroke Type Prediction Network --------------------- #
-strokeType_graph_encoder = Encoders.gnn.gnn.SemanticModule()
-strokeType_graph_decoder= Encoders.gnn.gnn.Stroke_type_Decoder()
-strokeType_dir = os.path.join(current_dir, 'checkpoints', 'stroke_type_prediction')
-strokeType_graph_encoder.eval()
-strokeType_graph_decoder.eval()
-strokeType_graph_encoder.load_state_dict(torch.load(os.path.join(strokeType_dir, 'graph_encoder.pth'), weights_only=True))
-strokeType_graph_decoder.load_state_dict(torch.load(os.path.join(strokeType_dir, 'graph_decoder.pth'), weights_only=True))
-
-
-def do_stroke_type_prediction(gnn_graph):
-    x_dict = strokeType_graph_encoder(gnn_graph.x_dict, gnn_graph.edge_index_dict)
-    output_mask = strokeType_graph_decoder(x_dict)
-
-    predicted_stroke_idx = (output_mask > 0.5).nonzero(as_tuple=True)[0]  # Indices of chosen strokes
-    # Encoders.helper.vis_selected_strokes(gnn_graph['stroke'].x.cpu().numpy(), predicted_stroke_idx)
-    return output_mask
-
-
-
-# --------------------- Fidelity Score --------------------- #
-fidelity_graph_encoder = Encoders.gnn.gnn.SemanticModule()
-fidelity_graph_decoder= Encoders.gnn.gnn.Fidelity_Decoder()
-fidelity_dir = os.path.join(current_dir, 'checkpoints', 'fidelity_prediction')
-fidelity_graph_encoder.eval()
-fidelity_graph_decoder.eval()
-fidelity_graph_encoder.load_state_dict(torch.load(os.path.join(fidelity_dir, 'graph_encoder.pth'), weights_only=True))
-fidelity_graph_decoder.load_state_dict(torch.load(os.path.join(fidelity_dir, 'graph_decoder.pth'), weights_only=True))
-
-
-def do_fidelity_score_prediction(gnn_graph):
-    x_dict = fidelity_graph_encoder(gnn_graph.x_dict, gnn_graph.edge_index_dict)
-    output_logits = fidelity_graph_decoder(x_dict, True)
-    predicted_bin = torch.argmax(output_logits, dim=1)
-    return predicted_bin.item()
 
 
 # --------------------- Cascade Brep Features --------------------- #
