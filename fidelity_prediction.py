@@ -67,25 +67,28 @@ def save_models():
 
 
 
-def compute_accuracy(predictions, ground_truth):
+def compute_accuracy(output, target, tol=0.1):
     """
-    Computes accuracy for classification predictions.
-
-    Args:
-        predictions (torch.Tensor): Predicted logits, shape (batch_size, num_bins).
-        ground_truth (torch.Tensor): Ground truth bin indices, shape (batch_size).
-
+    Computes accuracy for regression outputs by counting a prediction as correct if
+    its absolute difference from the target is less than tol.
+    
+    Parameters:
+    - output: torch.Tensor of predictions
+    - target: torch.Tensor of ground truth values
+    - tol: float, tolerance threshold
+    
     Returns:
-        correct (int): Number of correct predictions.
-        total (int): Total number of predictions.
+    - correct: int, number of predictions within tolerance
+    - total: int, total number of predictions
     """
-    # Get the predicted bin index by finding the max logit
-    predicted_bins = torch.argmax(predictions, dim=1)  # Shape: (batch_size,)
-
-    # Compare with ground truth
-    correct = (predicted_bins == ground_truth).sum().item()
-    total = ground_truth.size(0)
-
+    # Flatten in case tensors are not 1D
+    output = output.view(-1)
+    target = target.view(-1)
+    
+    # Count predictions that are within the tolerance
+    correct = (torch.abs(output - target) < tol).sum().item()
+    total = target.numel()
+    
     return correct, total
 
 # ------------------------------------------------------------------------------# 
@@ -96,7 +99,7 @@ def train():
     dataset = whole_process_evaluate.Evaluation_Dataset('program_output_dataset')
     total_samples = len(dataset)
     chunk_size = 10000
-    epochs_per_chunk = 20
+    epochs_per_chunk = 10
 
     best_accuracy = 0.0
 
