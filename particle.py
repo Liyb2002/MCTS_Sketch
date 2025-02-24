@@ -79,7 +79,7 @@ class Particle():
 
         # Particle State
         self.particle_id = 1
-        
+
         self.leafNode = False
         self.sampling_particle = True
 
@@ -268,8 +268,6 @@ class Particle():
 
     def deepcopy_particle(self, new_id, prob):
 
-        self.sampling_particle = False
-
         new_particle = copy.copy(self)
         
         # manual copy, because we have tensors
@@ -301,8 +299,12 @@ class Particle():
         # Tree info
         new_particle.childNodes = []
         new_particle.prob = prob
-        new_particle.sampling_particle = True
 
+        if new_id < 100:
+            new_particle.sampling_particle = True
+            self.sampling_particle = False
+        else:
+            new_particle.sampling_particle = False
 
         # Update Node tree info
 

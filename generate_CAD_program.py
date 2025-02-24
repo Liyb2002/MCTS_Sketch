@@ -102,7 +102,7 @@ for data in tqdm(data_loader, desc="Generating CAD Programs"):
     if data_produced > data_limit:
         break
 
-    if program[-1][0] != 'terminate' or len(program)<6:
+    if program[-1][0] != 'terminate' or len(program)<8:
         continue
     
     cur_output_dir = os.path.join(output_dir, f'data_{data_produced}')
