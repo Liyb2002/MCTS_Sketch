@@ -129,7 +129,7 @@ for data in tqdm(data_loader, desc="Generating CAD Programs"):
 
     while len(reproducible_particles) != 0:
 
-        if num_states > 10:
+        if num_states > 100:
             break
 
         reproducible_particle = reproducible_particles.pop(0) 
@@ -163,7 +163,14 @@ for data in tqdm(data_loader, desc="Generating CAD Programs"):
     print("start rollout")
     # For all leafNodes, sample solutions
     for leaf_node in leafNodes_list:
-        leaf_node.sample_tree()
+        for i in range (0, 10):
+            copied_particle = leaf_node.deepcopy_particle(leaf_node.particle_id * 100 + i, 1)
+            copied_particle.sample_tree()
+            leaf_node.value = max(leaf_node.value, copied_particle.value)
+    
+    
+    for leaf_node in leafNodes_list:
+        print("leaf Node fideleity score", leaf_node.value)
         
     # print("Start Tree Computation")
     # base_particle.print_tree()

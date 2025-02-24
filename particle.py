@@ -34,6 +34,8 @@ import shutil
 import numpy as np
 import random
 import torch.nn.functional as F  
+import random
+
 
 class Particle():
     def __init__(self, gt_brep_file_path, data_produced, stroke_node_features):
@@ -325,12 +327,7 @@ class Particle():
         
     def generate_next_step(self, params):
 
-        if self.current_op == 0:
-            if self.cur_fidelity_score > 0.95:
-                self.value = 1
-            elif self.cur_fidelity_score > 0.9:
-                self.value = 0.5
-                
+        if self.current_op == 0:                
             self.leafNode = True
 
             return
@@ -341,7 +338,6 @@ class Particle():
                 self.mark_off_new_strokes(self.stroke_to_loop)
             else:
                 if not self.mark_off_new_strokes(self.stroke_to_loop):
-                    self.value = 0
                     self.leafNode = True
                     return
 
@@ -449,7 +445,6 @@ class Particle():
                 
         except Exception as e:
             print("exception:", e)
-            self.value = 0 
             self.leafNode = True
 
 
@@ -557,6 +552,7 @@ class Particle():
 
     def sample_tree(self):
         self.sampling_prob = 1
+
         while True:
 
             try:
@@ -582,7 +578,8 @@ class Particle():
                 if op_idx == 1:
                     params, pair_prob = predict_sketch(self.gnn_graph)[0]  # Get sketch params
                 elif op_idx == 2:
-                    params, pair_prob = predict_extrude(self.gnn_graph, self.sketch_selection_mask, self.sketch_points, self.brep_edges)[0]  # Get extrude params
+                    params, pair_prob = predict_extrude(self.gnn_graph, self.sketch_selection_mask, self.sketch_points, self.brep_edges)[random.choice([0, 1])
+] 
                 else:
                     params, pair_prob = None, 1
                     self.sampling_prob = self.sampling_prob * pair_prob
@@ -600,6 +597,21 @@ class Particle():
                 break
 
 
+
+        # Now compute the value
+        cur_relative_output_dir = os.path.join(output_dir_name, f'data_{self.data_produced}', f'particle_{self.particle_id}')
+
+        brep_files = [
+            file_name for file_name in os.listdir(os.path.join(cur_relative_output_dir, 'canvas'))
+            if file_name.startswith('brep_') and file_name.endswith('.step')
+        ]
+        brep_files.sort(key=lambda x: int(x.split('_')[1].split('.')[0]))
+
+        brep_path = os.path.join(output_dir_name, f'data_{self.data_produced}', f'particle_{self.particle_id}', 'canvas')
+
+        self.value = fidelity_score.compute_fidelity_score(
+            self.gt_brep_file_path, os.path.join(brep_path, brep_files[-1])
+        )
 
 
 # ---------------------------------------------------------------------------------------------------------------------------------- #
