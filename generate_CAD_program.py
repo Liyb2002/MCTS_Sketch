@@ -46,7 +46,7 @@ data_loader = DataLoader(dataset, batch_size=1, shuffle=True)
 
 # --------------------- Directory --------------------- #
 current_dir = os.getcwd()
-output_dir = os.path.join(current_dir, 'MCTS_dataset')
+output_dir = os.path.join(current_dir, 'program_output_dataset')
 
 
 
@@ -101,7 +101,7 @@ for data in tqdm(data_loader, desc="Generating CAD Programs"):
     if data_produced > data_limit:
         break
 
-    if program[-1][0] != 'terminate' or len(program) < 6:
+    if program[-1][0] != 'terminate' or len(program)<6:
         continue
     
     cur_output_dir = os.path.join(output_dir, f'data_{data_produced}')
@@ -124,19 +124,14 @@ for data in tqdm(data_loader, desc="Generating CAD Programs"):
 
 
     reproducible_particles = [base_particle]
-    all_particles = [base_particle]
     num_states = 1
 
     while len(reproducible_particles) != 0:
-
-        if num_states > 100:
-            break
-
         reproducible_particle = reproducible_particles.pop(0) 
 
         available_ops = reproducible_particle.reproduce()
 
-        if len(available_ops) == 0:
+        if available_ops is None:
             continue
 
         for op, prob, param in available_ops:
@@ -147,33 +142,20 @@ for data in tqdm(data_loader, desc="Generating CAD Programs"):
 
             reproducible_particle.childNodes.append(new_particle)
 
-            reproducible_particles.append(new_particle)
-            all_particles.append(new_particle)
+            if not new_particle.leafNode:
+                reproducible_particles.append(new_particle)
 
             num_states += 1
 
 
-    # Now we need to find the leafNodes
-    leafNodes_list = []
-    for tree_node in all_particles:
-        if tree_node.leafNode:
-            leafNodes_list.append(tree_node)
+    print("Start Tree Computation")
+    base_particle.compute_value(cur_output_dir)
+    base_particle.print_tree()
+    success_program = base_particle.save_to_json(cur_output_dir)
+    base_particle.clean_tree()
 
-
-    print("start rollout")
-    # For all leafNodes, sample solutions
-    for leaf_node in leafNodes_list:
-        for i in range (0, 10):
-            copied_particle = leaf_node.deepcopy_particle(leaf_node.particle_id * 100 + i, 1)
-            copied_particle.sample_tree()
-            leaf_node.value = max(leaf_node.value, copied_particle.value)
-    
-    
-    for leaf_node in leafNodes_list:
-        print("leaf Node fideleity score", leaf_node.value)
-        
-    # print("Start Tree Computation")
-    # base_particle.print_tree()
+    if not success_program:
+        data_produced = handle_failed_program(cur_output_dir, data_produced)
 
 
 
