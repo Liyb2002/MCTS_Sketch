@@ -79,10 +79,14 @@ class Particle():
 
         # Particle State
         self.particle_id = 1
+        
         self.leafNode = False
-        self.prob = 1
+        self.sampling_particle = True
 
         self.value = 0
+        self.sampled_value = 0
+
+        self.sampling_prob = 1
         self.prob = 1
         self.childNodes = []
 
@@ -264,6 +268,8 @@ class Particle():
 
     def deepcopy_particle(self, new_id, prob):
 
+        self.sampling_particle = False
+
         new_particle = copy.copy(self)
         
         # manual copy, because we have tensors
@@ -295,6 +301,7 @@ class Particle():
         # Tree info
         new_particle.childNodes = []
         new_particle.prob = prob
+        new_particle.sampling_particle = True
 
 
         # Update Node tree info
@@ -330,6 +337,7 @@ class Particle():
                 self.value = 0.5
                 
             self.leafNode = True
+            self.sampling_particle = False
 
             return
 
@@ -341,6 +349,7 @@ class Particle():
                 if not self.mark_off_new_strokes(self.stroke_to_loop):
                     self.value = 0
                     self.leafNode = True
+                    self.sampling_particle = False
                     return
 
 
@@ -448,6 +457,7 @@ class Particle():
             print("exception:", e)
             self.value = 0 
             self.leafNode = True
+            self.sampling_particle = False
 
 
 
@@ -523,8 +533,8 @@ class Particle():
             available_ops = [op for op in possible_ops if op not in self.non_available_ops()]
             available_probs = [probs[op] for op in available_ops]
             
-            # Filter valid operations with probability >= 0.02
-            valid_ops = [(op, prob, None) for op, prob in zip(available_ops, available_probs) if prob >= 0.02]
+            # Filter valid operations with probability >= 0.05
+            valid_ops = [(op, prob, None) for op, prob in zip(available_ops, available_probs) if prob >= 0.05]
 
 
             # Sample params for valid_ops
@@ -547,6 +557,72 @@ class Particle():
         except Exception as e:
             print(f"Error in reproduce: {e}")
             return []
+
+
+    
+
+    def sample_tree(self):
+        self.sampling_prob = 1
+
+        while True:
+
+            try:
+                
+
+                if len(self.past_programs) > len(self.gt_program) or self.current_op == 0:
+                    break
+                
+                self.build_graph()
+                
+                # sample the next operation
+                operation_probs = program_prediction(self.gnn_graph, self.past_programs)
+                operation_probs = np.array(operation_probs)
+                operation_probs /= operation_probs.sum()
+                op_idx = np.random.choice(len(operation_probs), p=operation_probs)
+                op_prob = operation_probs[op_idx]
+                self.sampling_prob = self.sampling_prob * op_prob
+
+
+                # Prepare params
+                if op_idx == 1:
+                    params, pair_prob = predict_sketch(self.gnn_graph)[0]  # Get sketch params
+                elif op_idx == 2:
+                    params, pair_prob = predict_extrude(self.gnn_graph, self.sketch_selection_mask, self.sketch_points, self.brep_edges)[random.choice([0, 1])] 
+                else:
+                    params, pair_prob = None, 1
+                    self.sampling_prob = self.sampling_prob * pair_prob
+
+
+                success_gen_next_step = self.generate_next_step(params)
+
+                if not success_gen_next_step:
+                    break
+
+
+
+            except Exception as e:
+                print(f"Error in reproduce: {e}")
+                break
+
+
+
+        # Now compute the value
+        cur_relative_output_dir = os.path.join(output_dir_name, f'data_{self.data_produced}', f'particle_{self.particle_id}')
+
+        brep_files = [
+            file_name for file_name in os.listdir(os.path.join(cur_relative_output_dir, 'canvas'))
+            if file_name.startswith('brep_') and file_name.endswith('.step')
+        ]
+        brep_files.sort(key=lambda x: int(x.split('_')[1].split('.')[0]))
+
+        brep_path = os.path.join(output_dir_name, f'data_{self.data_produced}', f'particle_{self.particle_id}', 'canvas')
+
+        self.sampled_value = fidelity_score.compute_fidelity_score(
+            self.gt_brep_file_path, os.path.join(brep_path, brep_files[-1])
+        )
+
+    
+    
 
 
 # ---------------------------------------------------------------------------------------------------------------------------------- #

@@ -36,6 +36,7 @@ import time
 from collections import deque
 
 
+torch.cuda.empty_cache()
 
 
 
@@ -124,6 +125,7 @@ for data in tqdm(data_loader, desc="Generating CAD Programs"):
 
 
     reproducible_particles = [base_particle]
+    major_tree_particles = [base_particle]
     num_states = 1
 
     while len(reproducible_particles) != 0:
@@ -144,8 +146,21 @@ for data in tqdm(data_loader, desc="Generating CAD Programs"):
 
             if not new_particle.leafNode:
                 reproducible_particles.append(new_particle)
+                major_tree_particles.append(new_particle)
 
             num_states += 1
+
+
+    #Do sampling
+    sampling_list = []
+    for idx, tree_node in enumerate(major_tree_particles):
+        if tree_node.sampling_particle and idx < 100:
+            sampling_list.append(tree_node)
+    
+    # Start rollout
+    for sample_node in sampling_list:
+        sample_node.sample_tree()
+        print("sample_node",sample_node.sampled_value)
 
 
     print("Start Tree Computation")
