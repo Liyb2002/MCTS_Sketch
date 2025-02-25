@@ -41,7 +41,7 @@ torch.cuda.empty_cache()
 
 
 # --------------------- Dataset --------------------- #
-dataset = Preprocessing.dataloader.Program_Graph_Dataset('dataset/whole', return_data_path=True)
+dataset = Preprocessing.dataloader.Program_Graph_Dataset('dataset/test', return_data_path=True)
 data_loader = DataLoader(dataset, batch_size=1, shuffle=True)
 
 
@@ -163,8 +163,8 @@ for data in tqdm(data_loader, desc="Generating CAD Programs"):
 
 
     print("Start Tree Computation")
-    # base_particle.compute_value()
-    base_particle.print_tree()
+    base_particle.compute_value()
+    # base_particle.print_tree()
     success_program = base_particle.save_to_json(cur_output_dir)
     # base_particle.clean_tree()
 

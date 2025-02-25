@@ -94,13 +94,14 @@ class Particle():
 
 
     def compute_value(self):
-        if not self.childNodes:
+        if len(self.childNodes) == 0:
             computed_value = self.value  # Leaf node, return its stored value
         else:
             
             # 1) normalize all child's prob
             total_prob = sum(child.prob for child in self.childNodes if child.prob > 0)
             normalized_probs = [child.prob / total_prob for child in self.childNodes]
+
 
             # 2) sum all the child's prob
             computed_value = sum(
@@ -109,10 +110,13 @@ class Particle():
             )
 
             # 3) if sampling is true
-            # total_weight = 1 + self.sampling_prob
-            # if self.sampled_value != 0:
-            #     computed_value = (computed_value * 1 + self.sampled_value * self.sampling_prob) / total_weight
-
+            total_weight = 1 + self.sampling_prob
+            
+            print("self.self.sampled_value", self.sampled_value)
+            if self.sampled_value != 0:
+                print("old computed_value", computed_value)
+                computed_value = (computed_value * 1 + self.sampled_value * self.sampling_prob) / total_weight
+                print("new computed_value", computed_value)
 
             self.value = computed_value  # Update self.value
 
@@ -142,6 +146,7 @@ class Particle():
         #     print("Node id", self.particle_id, "has past program", self.past_programs, "has gt program", self.gt_program)
         # print("self.cur_fidelity_score", self.cur_fidelity_score)
         print("Node id", self.particle_id, "has prob", self.prob, "has program", self.past_programs, "has value", self.value)
+        # print("Node id", self.particle_id, "has childnodes", self.childNodes)
         print("-----------------")
         for child in self.childNodes:
             child.print_tree()
@@ -314,7 +319,6 @@ class Particle():
         # Tree info
         new_particle.childNodes = []
         new_particle.prob = prob
-        new_particle.cur_fidelity_score = self.cur_fidelity_score
 
         if new_id < 100:
             new_particle.sampling_particle = True
@@ -350,6 +354,7 @@ class Particle():
 
 
         if self.current_op == 0:
+            self.compute_fidelity_score()
             self.value = self.cur_fidelity_score
             self.leafNode = True
             self.sampling_particle = False
@@ -362,6 +367,7 @@ class Particle():
                 self.mark_off_new_strokes(self.stroke_to_loop)
             else:
                 if not self.mark_off_new_strokes(self.stroke_to_loop):
+                    self.compute_fidelity_score()
                     self.value = self.cur_fidelity_score
                     self.leafNode = True
                     self.sampling_particle = False
@@ -470,12 +476,16 @@ class Particle():
                 
         except Exception as e:
             print("exception:", e)
+            self.compute_fidelity_score()
             self.value = self.cur_fidelity_score
             self.leafNode = True
             self.sampling_particle = False
 
+            return
+    
 
 
+    def compute_fidelity_score(self):
         # compute fidelity score
         cur_relative_output_dir = os.path.join(output_dir_name, f'data_{self.data_produced}', f'particle_{self.particle_id}')
         # Get brep files
@@ -486,24 +496,12 @@ class Particle():
         brep_files.sort(key=lambda x: int(x.split('_')[1].split('.')[0]))
         brep_path = os.path.join(output_dir_name, f'data_{self.data_produced}', f'particle_{self.particle_id}', 'canvas')
 
-        new_fidelity_score = 0
         if self.particle_id != 0 and len(brep_files) != 0:
-            new_fidelity_score = fidelity_score.compute_fidelity_score(
+            self.cur_fidelity_score = fidelity_score.compute_fidelity_score(
                 self.gt_brep_file_path, os.path.join(brep_path, brep_files[-1])
             )
-        else:
-            return
 
         
-
-        if (self.past_programs[-1] != 1 and new_fidelity_score < self.cur_fidelity_score):
-            self.value = new_fidelity_score
-            self.leafNode = True
-            self.sampling_particle = False
-            return
-
-
-        self.cur_fidelity_score = new_fidelity_score
 
 
     def get_gt_brep_history(self):
