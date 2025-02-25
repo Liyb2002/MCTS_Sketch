@@ -89,7 +89,7 @@ def handle_failed_program(cur_output_dir, data_produced):
 
 # --------------------- Main Code --------------------- #
 data_produced = compute_start_idx()
-data_limit = 1
+data_limit = 1000
 if os.path.exists(os.path.join(output_dir, f'data_{data_produced}')):
     shutil.rmtree(os.path.join(output_dir, f'data_{data_produced}'))
 os.makedirs(os.path.join(output_dir, f'data_{data_produced}'), exist_ok=True)
@@ -102,7 +102,7 @@ for data in tqdm(data_loader, desc="Generating CAD Programs"):
     if data_produced > data_limit:
         break
 
-    if program[-1][0] != 'terminate' or len(program) < 6:
+    if program[-1][0] != 'terminate' or len(program) < 8:
         continue
     
     cur_output_dir = os.path.join(output_dir, f'data_{data_produced}')
