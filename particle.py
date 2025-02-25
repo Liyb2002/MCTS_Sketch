@@ -349,33 +349,6 @@ class Particle():
     def generate_next_step(self, params):
 
 
-        # compute fidelity score
-        new_fidelity_score = 0
-        if self.particle_id != 0 and self.particle_id != 1:
-            cur_relative_output_dir = os.path.join(output_dir_name, f'data_{self.data_produced}', f'particle_{self.particle_id}')
-            
-            # Get brep files
-            brep_files = [
-                file_name for file_name in os.listdir(os.path.join(cur_relative_output_dir, 'canvas'))
-                if file_name.startswith('brep_') and file_name.endswith('.step')
-            ]
-            brep_files.sort(key=lambda x: int(x.split('_')[1].split('.')[0]))
-
-            brep_path = os.path.join(output_dir_name, f'data_{self.data_produced}', f'particle_{self.particle_id}', 'canvas')
-            new_fidelity_score = fidelity_score.compute_fidelity_score(
-                self.gt_brep_file_path, os.path.join(brep_path, brep_files[-1])
-            )
-
-        if self.past_programs[-1] != 1 and new_fidelity_score < self.cur_fidelity_score:
-            self.value = new_fidelity_score
-            self.leafNode = True
-            self.sampling_particle = False
-            return
-
-
-        self.cur_fidelity_score = new_fidelity_score
-
-
         if self.current_op == 0:
             self.value = self.cur_fidelity_score
             self.leafNode = True
@@ -501,6 +474,36 @@ class Particle():
             self.leafNode = True
             self.sampling_particle = False
 
+
+
+        # compute fidelity score
+        cur_relative_output_dir = os.path.join(output_dir_name, f'data_{self.data_produced}', f'particle_{self.particle_id}')
+        # Get brep files
+        brep_files = [
+            file_name for file_name in os.listdir(os.path.join(cur_relative_output_dir, 'canvas'))
+            if file_name.startswith('brep_') and file_name.endswith('.step')
+        ]
+        brep_files.sort(key=lambda x: int(x.split('_')[1].split('.')[0]))
+        brep_path = os.path.join(output_dir_name, f'data_{self.data_produced}', f'particle_{self.particle_id}', 'canvas')
+
+        new_fidelity_score = 0
+        if self.particle_id != 0 and len(brep_files) != 0:
+            new_fidelity_score = fidelity_score.compute_fidelity_score(
+                self.gt_brep_file_path, os.path.join(brep_path, brep_files[-1])
+            )
+        else:
+            return
+
+        
+
+        if (self.past_programs[-1] != 1 and new_fidelity_score < self.cur_fidelity_score):
+            self.value = new_fidelity_score
+            self.leafNode = True
+            self.sampling_particle = False
+            return
+
+
+        self.cur_fidelity_score = new_fidelity_score
 
 
     def get_gt_brep_history(self):
