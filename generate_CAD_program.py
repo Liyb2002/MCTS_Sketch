@@ -102,7 +102,7 @@ for data in tqdm(data_loader, desc="Generating CAD Programs"):
     if data_produced > data_limit:
         break
 
-    if program[-1][0] != 'terminate' or len(program)<8:
+    if program[-1][0] != 'terminate':
         continue
     
     cur_output_dir = os.path.join(output_dir, f'data_{data_produced}')
@@ -160,14 +160,13 @@ for data in tqdm(data_loader, desc="Generating CAD Programs"):
     # Start rollout
     for sample_node in sampling_list:
         sample_node.sample_tree()
-        print("sample_node",sample_node.sampled_value)
 
 
     print("Start Tree Computation")
-    base_particle.compute_value(cur_output_dir)
+    # base_particle.compute_value()
     base_particle.print_tree()
     success_program = base_particle.save_to_json(cur_output_dir)
-    base_particle.clean_tree()
+    # base_particle.clean_tree()
 
     if not success_program:
         data_produced = handle_failed_program(cur_output_dir, data_produced)

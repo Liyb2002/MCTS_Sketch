@@ -84,20 +84,39 @@ class Particle():
         self.sampling_particle = True
 
         self.value = 0
-        self.sampled_value = 0
-
-        self.sampling_prob = 1
         self.prob = 1
+
+        self.sampled_value = 0
+        self.sampling_prob = 1
+
+
         self.childNodes = []
 
 
-    def compute_value(self, cur_output_dir_outerFolder):
+    def compute_value(self):
         if not self.childNodes:
             computed_value = self.value  # Leaf node, return its stored value
         else:
-            computed_value = sum(child.compute_value(cur_output_dir_outerFolder) * child.prob 
-                                for child in self.childNodes if child.prob > 0)
+            
+            # 1) normalize all child's prob
+            total_prob = sum(child.prob for child in self.childNodes if child.prob > 0)
+            normalized_probs = [child.prob / total_prob for child in self.childNodes]
+
+            # 2) sum all the child's prob
+            computed_value = sum(
+            child.compute_value() * normalized_prob
+            for child, normalized_prob in zip(self.childNodes, normalized_probs)
+            )
+
+            # 3) if sampling is true
+            # total_weight = 1 + self.sampling_prob
+            # if self.sampled_value != 0:
+            #     computed_value = (computed_value * 1 + self.sampled_value * self.sampling_prob) / total_weight
+
+
             self.value = computed_value  # Update self.value
+
+
 
         # Save the computed value to JSON in the particle's directory
         if self.particle_id <= 100:
@@ -121,7 +140,7 @@ class Particle():
         # if self.cur_fidelity_score > 0.9:
 
         #     print("Node id", self.particle_id, "has past program", self.past_programs, "has gt program", self.gt_program)
-        print("self.cur_fidelity_score", self.cur_fidelity_score)
+        # print("self.cur_fidelity_score", self.cur_fidelity_score)
         print("Node id", self.particle_id, "has prob", self.prob, "has program", self.past_programs, "has value", self.value)
         print("-----------------")
         for child in self.childNodes:
@@ -159,10 +178,6 @@ class Particle():
         - False if the root node (particle_id = 0) has value 0.
         - True if saved successfully.
         """
-        # Check if this is the root node and if its value is 0
-        if self.particle_id == 0 and self.value == 0:
-            print("Root node has value 0. Aborting save.")
-            return False  # Stop execution
         
         tree_dict = self.to_dict()  # Convert the tree to a dictionary
         
@@ -299,6 +314,7 @@ class Particle():
         # Tree info
         new_particle.childNodes = []
         new_particle.prob = prob
+        new_particle.cur_fidelity_score = self.cur_fidelity_score
 
         if new_id < 100:
             new_particle.sampling_particle = True
@@ -332,12 +348,36 @@ class Particle():
         
     def generate_next_step(self, params):
 
+
+        # compute fidelity score
+        new_fidelity_score = 0
+        if self.particle_id != 0 and self.particle_id != 1:
+            cur_relative_output_dir = os.path.join(output_dir_name, f'data_{self.data_produced}', f'particle_{self.particle_id}')
+            
+            # Get brep files
+            brep_files = [
+                file_name for file_name in os.listdir(os.path.join(cur_relative_output_dir, 'canvas'))
+                if file_name.startswith('brep_') and file_name.endswith('.step')
+            ]
+            brep_files.sort(key=lambda x: int(x.split('_')[1].split('.')[0]))
+
+            brep_path = os.path.join(output_dir_name, f'data_{self.data_produced}', f'particle_{self.particle_id}', 'canvas')
+            new_fidelity_score = fidelity_score.compute_fidelity_score(
+                self.gt_brep_file_path, os.path.join(brep_path, brep_files[-1])
+            )
+
+        if self.past_programs[-1] != 1 and new_fidelity_score < self.cur_fidelity_score:
+            self.value = new_fidelity_score
+            self.leafNode = True
+            self.sampling_particle = False
+            return
+
+
+        self.cur_fidelity_score = new_fidelity_score
+
+
         if self.current_op == 0:
-            if self.cur_fidelity_score > 0.95:
-                self.value = 1
-            elif self.cur_fidelity_score > 0.9:
-                self.value = 0.5
-                
+            self.value = self.cur_fidelity_score
             self.leafNode = True
             self.sampling_particle = False
 
@@ -349,7 +389,7 @@ class Particle():
                 self.mark_off_new_strokes(self.stroke_to_loop)
             else:
                 if not self.mark_off_new_strokes(self.stroke_to_loop):
-                    self.value = 0
+                    self.value = self.cur_fidelity_score
                     self.leafNode = True
                     self.sampling_particle = False
                     return
@@ -457,7 +497,7 @@ class Particle():
                 
         except Exception as e:
             print("exception:", e)
-            self.value = 0 
+            self.value = self.cur_fidelity_score
             self.leafNode = True
             self.sampling_particle = False
 
@@ -501,31 +541,16 @@ class Particle():
     def reproduce(self):
     
         expanded_valid_ops = []
-        
+
         try:
             self.build_graph()
 
             # Check if able to reproduce
-            if self.particle_id != 0 and self.past_programs[-1] != 1:
-                cur_relative_output_dir = os.path.join(output_dir_name, f'data_{self.data_produced}', f'particle_{self.particle_id}')
+            # if self.particle_id != 0 and self.past_programs[-1] != 1:
+            #     if new_fidelity_score < self.cur_fidelity_score:
+            #         return []
                 
-                # Get brep files
-                brep_files = [
-                    file_name for file_name in os.listdir(os.path.join(cur_relative_output_dir, 'canvas'))
-                    if file_name.startswith('brep_') and file_name.endswith('.step')
-                ]
-                brep_files.sort(key=lambda x: int(x.split('_')[1].split('.')[0]))
-
-                brep_path = os.path.join(output_dir_name, f'data_{self.data_produced}', f'particle_{self.particle_id}', 'canvas')
-                new_fidelity_score = fidelity_score.compute_fidelity_score(
-                    self.gt_brep_file_path, os.path.join(brep_path, brep_files[-1])
-                )
-
-                if new_fidelity_score < self.cur_fidelity_score:
-                    return []
-                
-                self.cur_fidelity_score = new_fidelity_score
-
+            
             possible_ops = [0, 1, 2, 3, 4]
 
             # Get probabilities for each operation
@@ -569,7 +594,6 @@ class Particle():
         while True:
 
             try:
-                
 
                 if len(self.past_programs) > len(self.gt_program) or self.current_op == 0:
                     break
