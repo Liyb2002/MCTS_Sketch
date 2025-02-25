@@ -95,6 +95,8 @@ class Particle():
 
     def compute_value(self):
         if len(self.childNodes) == 0:
+            self.compute_fidelity_score()
+            self.value = self.cur_fidelity_score
             computed_value = self.value  # Leaf node, return its stored value
         else:
             
@@ -112,7 +114,6 @@ class Particle():
             # 3) if sampling is true
             total_weight = 1 + self.sampling_prob
             
-            print("self.self.sampled_value", self.sampled_value)
             if self.sampled_value != 0:
                 print("old computed_value", computed_value)
                 computed_value = (computed_value * 1 + self.sampled_value * self.sampling_prob) / total_weight
@@ -352,9 +353,7 @@ class Particle():
         
     def generate_next_step(self, params):
 
-
         if self.current_op == 0:
-            self.compute_fidelity_score()
             self.value = self.cur_fidelity_score
             self.leafNode = True
             self.sampling_particle = False
@@ -367,7 +366,6 @@ class Particle():
                 self.mark_off_new_strokes(self.stroke_to_loop)
             else:
                 if not self.mark_off_new_strokes(self.stroke_to_loop):
-                    self.compute_fidelity_score()
                     self.value = self.cur_fidelity_score
                     self.leafNode = True
                     self.sampling_particle = False
@@ -476,7 +474,6 @@ class Particle():
                 
         except Exception as e:
             print("exception:", e)
-            self.compute_fidelity_score()
             self.value = self.cur_fidelity_score
             self.leafNode = True
             self.sampling_particle = False
