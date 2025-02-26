@@ -101,6 +101,7 @@ class Evaluation_Dataset(Dataset):
         loop_neighboring_contained = torch.tensor(shape_data['loop_neighboring_contained'], dtype=torch.long)
         stroke_to_loop = torch.tensor(shape_data['stroke_to_loop'], dtype=torch.long)
         stroke_to_edge = torch.tensor(shape_data['stroke_to_edge'], dtype=torch.long)
+        is_all_edges_used = torch.tensor(shape_data['is_all_edges_used'], dtype=torch.long)
 
         return (
             particle_value,
@@ -108,7 +109,8 @@ class Evaluation_Dataset(Dataset):
             shape_data['stroke_cloud_loops'], 
             strokes_perpendicular, loop_neighboring_vertical,
             loop_neighboring_horizontal, loop_neighboring_contained,
-            stroke_to_loop, stroke_to_edge
+            stroke_to_loop, stroke_to_edge,
+            is_all_edges_used
         )
 
 

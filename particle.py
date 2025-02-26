@@ -115,9 +115,7 @@ class Particle():
             total_weight = 1 + self.sampling_prob
             
             if self.sampled_value != 0:
-                print("old computed_value", computed_value)
                 computed_value = (computed_value * 1 + self.sampled_value * self.sampling_prob) / total_weight
-                print("new computed_value", computed_value)
 
             self.value = computed_value  # Update self.value
 
@@ -459,7 +457,10 @@ class Particle():
                     'loop_neighboring_contained': self.loop_neighboring_contained,
 
                     'stroke_to_loop': self.stroke_to_loop,
-                    'stroke_to_edge': self.stroke_to_edge
+                    'stroke_to_edge': self.stroke_to_edge,
+
+                    'is_all_edges_used' : self.is_all_edges_used
+
 
                 }, f)
             
@@ -512,12 +513,11 @@ class Particle():
     def build_graph(self):
         stroke_to_loop_lines = Preprocessing.proc_CAD.helper.stroke_to_brep(self.stroke_cloud_loops, self.brep_loops, self.stroke_node_features, self.brep_edges)
         stroke_to_loop_circle = Preprocessing.proc_CAD.helper.stroke_to_brep_circle(self.stroke_cloud_loops, self.brep_loops, self.stroke_node_features, self.brep_edges)
-        stroke_to_loop = Preprocessing.proc_CAD.helper.union_matrices(stroke_to_loop_lines, stroke_to_loop_circle)
 
         stroke_to_edge_lines = Preprocessing.proc_CAD.helper.stroke_to_edge(self.stroke_node_features, self.brep_edges)
         stroke_to_edge_circle = Preprocessing.proc_CAD.helper.stroke_to_edge_circle(self.stroke_node_features, self.brep_edges)
-        stroke_to_edge = Preprocessing.proc_CAD.helper.union_matrices(stroke_to_edge_lines, stroke_to_edge_circle)
 
+        self.is_all_edges_used = Preprocessing.proc_CAD.helper.unused_edge(self.stroke_node_features, self.brep_edges)
 
         self.stroke_to_loop = Preprocessing.proc_CAD.helper.union_matrices(stroke_to_loop_lines, stroke_to_loop_circle)
         self.stroke_to_edge = Preprocessing.proc_CAD.helper.union_matrices(stroke_to_edge_lines, stroke_to_edge_circle)

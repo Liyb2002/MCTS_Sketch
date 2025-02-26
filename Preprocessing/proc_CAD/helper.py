@@ -1269,6 +1269,51 @@ def stroke_to_edge(stroke_node_features, final_brep_edges):
 
 
 
+def unused_edge(stroke_node_features, final_brep_edges):
+    """
+    Checks if all final BRep edges can be found in the stroke node features.
+
+    Parameters:
+    stroke_node_features (np.ndarray): A matrix of shape (num_strokes, 7), where the first 6 columns represent two 3D points.
+    final_brep_edges (np.ndarray): A matrix of shape (num_brep_edges, 6) representing two 3D points for each edge.
+
+    Returns:
+    bool: True if all final_brep_edges have a corresponding stroke, False otherwise.
+    """
+
+    def points_match(p1, p2, tol=1e-4):
+        """Check if two points match within a tolerance."""
+        return np.allclose(p1, p2, atol=tol)
+
+    for brep_edge in final_brep_edges:
+        if brep_edge.shape[0] < 6:  # Ensure brep_edge has enough dimensions
+            continue
+        
+        if brep_edge[-1] != 1 or brep_edge[7] != 0:
+            continue
+        
+        brep_start, brep_end = brep_edge[:3], brep_edge[3:6]  # Extract start and end points of BRep edge
+
+        match_found = False
+        for stroke in stroke_node_features:
+            if stroke.shape[0] < 6:  # Ensure stroke has enough dimensions
+                continue
+
+            stroke_start, stroke_end = stroke[:3], stroke[3:6]  # Extract start and end points of the stroke
+            
+            # Check if the BRep edge matches any stroke
+            if (points_match(brep_start, stroke_start) and points_match(brep_end, stroke_end)) or \
+               (points_match(brep_start, stroke_end) and points_match(brep_end, stroke_start)):
+                match_found = True
+                break  # No need to check further once a match is found
+
+        # If any brep_edge is not found in stroke_node_features, return False
+        if not match_found:
+            return False
+
+    return True  # All brep_edges found in stroke_node_features
+
+
 
 def stroke_to_edge_circle(stroke_node_features, final_brep_edges):
     num_strokes = stroke_node_features.shape[0]

@@ -117,8 +117,11 @@ def train():
             (particle_value, stroke_node_features, output_brep_edges, gt_brep_edges,
              stroke_cloud_loops, strokes_perpendicular, loop_neighboring_vertical,
              loop_neighboring_horizontal, loop_neighboring_contained, stroke_to_loop,
-             stroke_to_edge) = data
+             stroke_to_edge, is_all_edges_used) = data
 
+            if not is_all_edges_used:
+                continue
+            
             # Build the graph
             gnn_graph = Preprocessing.gnn_graph.SketchLoopGraph(
                 stroke_cloud_loops, 
