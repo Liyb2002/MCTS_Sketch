@@ -89,7 +89,7 @@ def handle_failed_program(cur_output_dir, data_produced):
 
 # --------------------- Main Code --------------------- #
 data_produced = compute_start_idx()
-data_limit = 1000
+data_limit = 5
 if os.path.exists(os.path.join(output_dir, f'data_{data_produced}')):
     shutil.rmtree(os.path.join(output_dir, f'data_{data_produced}'))
 os.makedirs(os.path.join(output_dir, f'data_{data_produced}'), exist_ok=True)

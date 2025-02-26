@@ -4,6 +4,9 @@ import os
 import pickle
 from tqdm import tqdm
 import torch
+import glob
+import json
+import random
 
 import Preprocessing.SBGCN.brep_read
 import Preprocessing.proc_CAD.helper
@@ -14,7 +17,7 @@ import fidelity_score
 
 # --------------------- Dataloader for output --------------------- #
 class Evaluation_Dataset(Dataset):
-    def __init__(self, dataset, mode = 1):
+    def __init__(self, dataset):
         self.data_path = os.path.join(os.getcwd(), dataset)
         self.data_dirs = [
             os.path.join(self.data_path, d) 
@@ -25,41 +28,14 @@ class Evaluation_Dataset(Dataset):
         # List of sublist. Each sublist is all the particles in a data piece
         self.data_particles = []
         
-        # mode 1: sample a particle
-        if mode == 1:
-            for data_dir in self.data_dirs:
-                found_folder = False
-                for subfolder in os.listdir(data_dir):
-                    if os.path.isdir(os.path.join(data_dir, subfolder)):
-                        self.data_particles.append([os.path.join(data_dir, subfolder)])
-                        found_folder = True
-                        break
-                if not found_folder:
-                    self.data_particles.append([])
-        
-        # mode 2: find all particles
-        if mode == 2:
-            self.data_particles = [
-            [
-                os.path.join(data_dir, subfolder)
-                for subfolder in os.listdir(data_dir)
-                if os.path.isdir(os.path.join(data_dir, subfolder))
-            ]
-            for data_dir in self.data_dirs
+        self.data_particles = [
+        [
+            os.path.join(data_dir, subfolder)
+            for subfolder in os.listdir(data_dir)
+            if os.path.isdir(os.path.join(data_dir, subfolder))
         ]
-
-        if mode == 3:
-            # mode 3: only find particles that ends with _output
-            for data_dir in self.data_dirs:
-                found_folder = False
-                for subfolder in os.listdir(data_dir):
-                    # Check if the item is a directory and ends with '_output'
-                    if os.path.isdir(os.path.join(data_dir, subfolder)) and subfolder.endswith('_output'):
-                        self.data_particles.append([os.path.join(data_dir, subfolder)])
-                        found_folder = True
-                        break
-                if not found_folder:
-                    self.data_particles.append([])
+        for data_dir in self.data_dirs
+        ]
 
 
 
@@ -70,74 +46,65 @@ class Evaluation_Dataset(Dataset):
             for folder in sublist
         ]
 
-        # Collect all data pieces: (folder_path, file_index)
-        self.data_pieces = []
 
-        if mode == 1 or mode == 2:
-            for folder in self.flatted_particle_folders:
-                canvas_dir = os.path.join(folder, 'canvas')
-                if os.path.exists(canvas_dir) and os.path.isdir(canvas_dir):
-                    shape_files = sorted(
-                        f for f in os.listdir(canvas_dir) if f.endswith('_eval_info.pkl')
-                    )
-                    for shape_file in shape_files:
-                        index = int(shape_file.split('_')[0])
-                        self.data_pieces.append((folder, index))
-
-        if mode == 3:
-            for folder in self.flatted_particle_folders:
-                canvas_dir = os.path.join(folder, 'canvas')
-                if os.path.exists(canvas_dir) and os.path.isdir(canvas_dir):
-                    shape_files = [
-                        f for f in os.listdir(canvas_dir) if f.endswith('_eval_info.pkl')
-                    ]
-                    if shape_files:  # Ensure there are files to process
-                        # Get the file with the highest index
-                        max_shape_file = max(
-                            shape_files, key=lambda x: int(x.split('_')[0])
-                        )
-                        index = int(max_shape_file.split('_')[0])
-                        self.data_pieces.append((folder, index))
-
-        print(f"Total number of data pieces: {len(self.data_pieces)}")
+        print(f"Total number of data pieces: {len(self.flatted_particle_folders)}")
 
     def __len__(self):
-        return len(self.data_pieces)
+        return len(self.flatted_particle_folders)
 
     def __getitem__(self, idx):
-        folder, file_index = self.data_pieces[idx]
+        folder = self.flatted_particle_folders[idx]
+    
+
+        particle_value_file = os.path.join(folder, "particle_value.json")
+        if not os.path.exists(particle_value_file):
+            return self.__getitem__((idx + 1) % len(self.flatted_particle_folders))
+        else:
+            with open(particle_value_file, 'r') as f:
+                particle_data = json.load(f)
+        particle_value = particle_data.get('value', None)  # Extract 'value', default to None if missing
+        if particle_value == 0 and random.random() < 0.8:
+            return self.__getitem__((idx + 1) % len(self.flatted_particle_folders))
+
+
         canvas_dir = os.path.join(folder, 'canvas')
 
-        # Load stroke node features
-        eval_file = os.path.join(canvas_dir, f"{file_index}_eval_info.pkl")
-        if not os.path.exists(eval_file):
-            raise FileNotFoundError(f"{eval_file} not found.")
+        # Find the eval file dynamically
+        eval_files = glob.glob(os.path.join(canvas_dir, "*_eval_info.pkl"))
+        if not eval_files:
+            return self.__getitem__((idx + 1) % len(self.flatted_particle_folders))  # Try the next item
+        eval_file = eval_files[0]  # Assuming there's only one
+
         with open(eval_file, 'rb') as f:
             shape_data = pickle.load(f)
 
         # Convert numpy arrays to tensors
         stroke_node_features = torch.tensor(shape_data['stroke_node_features'], dtype=torch.float32)
 
+        # Find the highest index `brep_xxx.step`
+        brep_files = glob.glob(os.path.join(canvas_dir, "brep_*.step"))
+        if not brep_files:
+            return self.__getitem__((idx + 1) % len(self.flatted_particle_folders))  # Skip if no BREP file found
+
+        highest_brep_file = max(brep_files, key=lambda x: int(os.path.basename(x).split('_')[-1].split('.')[0]))
+
         # Load generated BREP file
-        brep_file = os.path.join(canvas_dir, f"brep_{file_index}.step")
-        edge_features_list, cylinder_features = Preprocessing.SBGCN.brep_read.create_graph_from_step_file(brep_file)
+        edge_features_list, cylinder_features = Preprocessing.SBGCN.brep_read.create_graph_from_step_file(highest_brep_file)
         output_brep_edges = Preprocessing.proc_CAD.helper.pad_brep_features(edge_features_list + cylinder_features)
         output_brep_edges = torch.tensor(output_brep_edges, dtype=torch.float32)
 
         # Convert numpy arrays to tensors
         gt_brep_edges = torch.tensor(shape_data['gt_brep_edges'], dtype=torch.float32)
-        cur_fidelity_score = torch.tensor(shape_data['cur_fidelity_score'], dtype=torch.float32)
         strokes_perpendicular = torch.tensor(shape_data['strokes_perpendicular'], dtype=torch.float32)
-        loop_neighboring_vertical = torch.tensor(shape_data['loop_neighboring_vertical'], dtype=torch.long)  # Adjacency typically uses torch.long
+        loop_neighboring_vertical = torch.tensor(shape_data['loop_neighboring_vertical'], dtype=torch.long)
         loop_neighboring_horizontal = torch.tensor(shape_data['loop_neighboring_horizontal'], dtype=torch.long)
         loop_neighboring_contained = torch.tensor(shape_data['loop_neighboring_contained'], dtype=torch.long)
-        stroke_to_loop = torch.tensor(shape_data['stroke_to_loop'], dtype=torch.long)  # Relationships should use torch.long
+        stroke_to_loop = torch.tensor(shape_data['stroke_to_loop'], dtype=torch.long)
         stroke_to_edge = torch.tensor(shape_data['stroke_to_edge'], dtype=torch.long)
 
-
         return (
+            particle_value,
             stroke_node_features, output_brep_edges, gt_brep_edges,
-            cur_fidelity_score,
             shape_data['stroke_cloud_loops'], 
             strokes_perpendicular, loop_neighboring_vertical,
             loop_neighboring_horizontal, loop_neighboring_contained,
