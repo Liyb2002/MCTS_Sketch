@@ -1289,7 +1289,7 @@ def unused_edge(stroke_node_features, final_brep_edges):
         if brep_edge.shape[0] < 6:  # Ensure brep_edge has enough dimensions
             continue
         
-        if brep_edge[-1] != 1 or brep_edge[7] != 0:
+        if brep_edge[-1] != 1:
             continue
         
         brep_start, brep_end = brep_edge[:3], brep_edge[3:6]  # Extract start and end points of BRep edge

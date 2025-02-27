@@ -170,6 +170,7 @@ def train():
         graphs.append(gnn_graph)
         stroke_selection_masks.append(extrude_selection_mask)
 
+
         # Encoders.helper.vis_selected_strokes(gnn_graph['stroke'].x.cpu().numpy(), sketch_stroke_idx)
         # Encoders.helper.vis_selected_strokes(gnn_graph['stroke'].x.cpu().numpy(), extrude_stroke_idx)
 

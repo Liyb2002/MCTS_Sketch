@@ -427,11 +427,7 @@ def vis_left_graph(stroke_node_features):
     for stroke in stroke_node_features:
         if stroke[-1] == 1:
             start, end = stroke[:3], stroke[3:6]
-            
-            # Ignore invalid strokes marked with specific values
-            if stroke[-2] == -1 and stroke[-3] == -1 and stroke[-4] == -1:
-                continue
-            
+                        
             color = 'blue'
             
             if stroke[-2] == 2:
@@ -633,6 +629,7 @@ def vis_brep(brep):
     fig = plt.figure()
     ax = fig.add_subplot(111, projection='3d')
     ax.grid(False)
+    ax.axis('off')
 
     # Check if brep is empty
     if brep.shape[0] == 0:
@@ -735,7 +732,7 @@ def vis_brep(brep):
         else:
             # Plot the stroke
             start, end = stroke[:3], stroke[3:6]
-            ax.plot([start[0], end[0]], [start[1], end[1]], [start[2], end[2]], color='blue', linewidth=1)
+            ax.plot([start[0], end[0]], [start[1], end[1]], [start[2], end[2]], color='blue', linewidth=0.5)
 
             # Update axis limits for the stroke points
             x_min, x_max = min(x_min, start[0], end[0]), max(x_max, start[0], end[0])
@@ -755,10 +752,6 @@ def vis_brep(brep):
     ax.set_ylim([y_center - max_diff / 2, y_center + max_diff / 2])
     ax.set_zlim([z_center - max_diff / 2, z_center + max_diff / 2])
 
-    # Set axis labels
-    ax.set_xlabel('X')
-    ax.set_ylabel('Y')
-    ax.set_zlabel('Z')
 
     # Show plot
     plt.show()

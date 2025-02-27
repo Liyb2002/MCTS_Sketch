@@ -98,10 +98,11 @@ def compute_accuracy(output, target, tol=0.1):
 def train():
     dataset = whole_process_evaluate.Evaluation_Dataset('program_output_dataset')
     total_samples = len(dataset)
-    chunk_size = 10
+    chunk_size = 1000
     epochs_per_chunk = 10
 
     best_accuracy = 0.0
+    past_particle_value = 0
 
     # Loop over dataset in chunks
     for chunk_start in range(0, total_samples, chunk_size):
@@ -119,9 +120,11 @@ def train():
              loop_neighboring_horizontal, loop_neighboring_contained, stroke_to_loop,
              stroke_to_edge, is_all_edges_used) = data
 
-            if not is_all_edges_used:
+        
+            if not is_all_edges_used or particle_value == past_particle_value:
                 continue
             
+            past_particle_value = particle_value
             # Build the graph
             gnn_graph = Preprocessing.gnn_graph.SketchLoopGraph(
                 stroke_cloud_loops, 
@@ -133,6 +136,14 @@ def train():
                 stroke_to_loop,
                 stroke_to_edge
             )
+
+        
+            # if particle_value != past_particle_value:
+            #     past_particle_value = particle_value
+            #     Encoders.helper.vis_left_graph(gnn_graph['stroke'].x.cpu().numpy())
+            #     Encoders.helper.vis_brep(output_brep_edges.cpu().numpy())
+
+
             gnn_graph.to_device_withPadding(device)
             graphs.append(gnn_graph)
 
@@ -228,6 +239,9 @@ def train():
         del graph_train_loader, score_train_loader, graph_val_loader, score_val_loader
         torch.cuda.empty_cache()
 
+
+
+# ------------------------------------------------------------------------------# 
 
 
 
