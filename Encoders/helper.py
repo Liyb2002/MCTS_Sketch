@@ -374,7 +374,7 @@ def vis_left_graph(stroke_node_features):
         alpha_value = stroke[6]
         
         # Ignore invalid strokes marked with specific values
-        if stroke[-2] == -1 and stroke[-3] == -1 and stroke[-4] == -1:
+        if stroke[-1] == -1 or alpha_value < 0:
             continue
         
         # Set color to blue for the initial pass
@@ -389,13 +389,13 @@ def vis_left_graph(stroke_node_features):
         if stroke[-2] == 2:
             # Circle face
             x_values, y_values, z_values = plot_circle(stroke)
-            ax.plot(x_values, y_values, z_values, color=color, linewidth=0.5, alpha = alpha_value)
+            ax.plot(x_values, y_values, z_values, color=color, linewidth=0.5, alpha = 0.5)
             continue
 
         if stroke[-2] == 3:
             # Arc
             x_values, y_values, z_values = plot_arc(stroke)
-            ax.plot(x_values, y_values, z_values, color=color, linewidth=0.5, alpha = alpha_value)
+            ax.plot(x_values, y_values, z_values, color=color, linewidth=0.5, alpha = 0.5)
             continue
 
         else:
@@ -462,7 +462,7 @@ def vis_left_graph(stroke_node_features):
                 smooth_y = cs_y(smooth_t)
                 smooth_z = cs_z(smooth_t)
 
-                ax.plot(smooth_x, smooth_y, smooth_z, color=color, linewidth=1, alpha = alpha_value)
+                ax.plot(smooth_x, smooth_y, smooth_z, color=color, linewidth=1, alpha = 0.5)
 
     # Compute the center and rescale
     x_center = (x_min + x_max) / 2

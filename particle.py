@@ -522,7 +522,7 @@ class Particle():
         self.stroke_to_loop = Preprocessing.proc_CAD.helper.union_matrices(stroke_to_loop_lines, stroke_to_loop_circle)
         self.stroke_to_edge = Preprocessing.proc_CAD.helper.union_matrices(stroke_to_edge_lines, stroke_to_edge_circle)
 
-        Preprocessing.proc_CAD.helper.vis_brep(self.brep_edges)
+        # Preprocessing.proc_CAD.helper.vis_brep(self.brep_edges)
 
 
         # 2) Build graph
