@@ -124,7 +124,7 @@ def compute_bin_score(cur_fidelity_score, bins):
 def train():
     dataset = whole_process_evaluate.Evaluation_Dataset('program_output_dataset')
     total_samples = len(dataset)
-    chunk_size = 100
+    chunk_size = 10000
     epochs_per_chunk = 20
 
     best_val_loss = float('inf')
@@ -270,6 +270,98 @@ def train():
         del hetero_train_graphs, hetero_val_graphs
         del graph_train_loader, score_train_loader, graph_val_loader, score_val_loader
         torch.cuda.empty_cache()
+
+
+def eval():
+    dataset = whole_process_evaluate.Evaluation_Dataset('program_output_dataset')
+    total_samples = len(dataset)
+    chunk_size = 1000  # Smaller chunk size for evaluation
+    batch_size = 1
+
+    bins = calculate_bins_with_min_score()
+
+    print("total_samples", total_samples)
+
+    load_models()  
+    graph_encoder.eval()
+    graph_decoder.eval()
+
+    total_correct = 0
+    total_samples_batch = 0
+    total_loss = 0.0
+
+    with torch.no_grad():  # Ensure no gradients are computed
+        for chunk_start in range(0, total_samples, chunk_size):
+            chunk_end = min(chunk_start + chunk_size, total_samples)
+            print(f"Processing graphs {chunk_start} to {chunk_end}...")
+
+            graphs = []
+            gt_state_value = []
+
+            # Process one chunk of graphs
+            for idx in tqdm(range(chunk_start, chunk_end), desc="Preprocessing graphs"):
+                data = dataset[idx]
+                (particle_value, stroke_node_features, output_brep_edges, gt_brep_edges,
+                 stroke_cloud_loops, strokes_perpendicular, loop_neighboring_vertical,
+                 loop_neighboring_horizontal, loop_neighboring_contained, stroke_to_loop,
+                 stroke_to_edge, is_all_edges_used) = data
+
+                if not is_all_edges_used:
+                    continue
+
+                # Build the graph
+                gnn_graph = Preprocessing.gnn_graph.SketchLoopGraph(
+                    stroke_cloud_loops,
+                    stroke_node_features,
+                    strokes_perpendicular,
+                    loop_neighboring_vertical,
+                    loop_neighboring_horizontal,
+                    loop_neighboring_contained,
+                    stroke_to_loop,
+                    stroke_to_edge
+                )
+
+                gnn_graph.to_device_withPadding(device)
+                graphs.append(gnn_graph)
+
+                # Convert the target value to a tensor (bin classification)
+                particle_value_tensor = torch.tensor(particle_value, dtype=torch.float32).to(device)
+                binned_score = compute_bin_score(particle_value_tensor, bins)  # Convert to bin index
+                gt_state_value.append(torch.tensor(binned_score, dtype=torch.long).to(device))  # Convert to LongTensor for CrossEntropyLoss
+
+            print(f"Loaded {len(graphs)} graphs from {chunk_start} to {chunk_end}.")
+
+            # Convert graphs to heterogeneous data format
+            hetero_graphs = [Preprocessing.gnn_graph.convert_to_hetero_data(graph) for graph in graphs]
+
+            # Create DataLoaders for the current chunk
+            graph_loader = DataLoader(hetero_graphs, batch_size=batch_size, shuffle=False)
+            score_loader = DataLoader(gt_state_value, batch_size=batch_size, shuffle=False)
+
+            # Evaluation loop
+            for hetero_batch, batch_scores in tqdm(zip(graph_loader, score_loader), 
+                                                   desc=f"Evaluating {chunk_start}-{chunk_end}",
+                                                   dynamic_ncols=True, total=len(graph_loader)):
+
+                x_dict = graph_encoder(hetero_batch.x_dict, hetero_batch.edge_index_dict)
+                output = graph_decoder(x_dict)  # Shape: [batch_size, num_classes]
+
+                loss = criterion(output, batch_scores)
+                total_loss += loss.item()
+
+                correct, total = compute_accuracy(output, batch_scores)
+                total_correct += correct
+                total_samples_batch += total
+
+                # Print predictions and ground truth for debugging
+                print("Predicted:", output.argmax(dim=-1).cpu().numpy())  # Get class predictions
+                print("Ground Truth:", batch_scores.cpu().numpy())
+
+    # Compute overall accuracy and loss
+    final_accuracy = total_correct / total_samples_batch
+    avg_loss = total_loss / total_samples_batch
+
+    print(f"Evaluation Loss: {avg_loss:.4f}, Accuracy: {final_accuracy:.4%}")
 
 
 
