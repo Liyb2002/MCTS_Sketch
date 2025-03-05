@@ -39,12 +39,12 @@ from mpl_toolkits.mplot3d import Axes3D
 
 
 graph_encoder = Encoders.gnn.gnn.SemanticModule()
-graph_decoder = Encoders.gnn.gnn.Fidelity_Decoder()
+graph_decoder = Encoders.gnn.gnn.Fidelity_Decoder_bin()
 
 graph_encoder.to(device)
 graph_decoder.to(device)
 
-criterion = nn.MSELoss()
+criterion = nn.CrossEntropyLoss()
 optimizer = optim.Adam(list(graph_encoder.parameters()) + list(graph_decoder.parameters()), lr=0.0004)
 batch_size = 16
 
@@ -68,43 +68,69 @@ def save_models():
 
 
 
-def compute_accuracy(output, target, tol=0.1):
+def compute_accuracy(predictions, ground_truth):
     """
-    Computes accuracy for regression outputs by counting a prediction as correct if
-    its absolute difference from the target is less than tol.
-    
-    Parameters:
-    - output: torch.Tensor of predictions
-    - target: torch.Tensor of ground truth values
-    - tol: float, tolerance threshold
-    
+    Computes accuracy for classification predictions.
+
+    Args:
+        predictions (torch.Tensor): Predicted logits, shape (batch_size, num_bins).
+        ground_truth (torch.Tensor): Ground truth bin indices, shape (batch_size).
+
     Returns:
-    - correct: int, number of predictions within tolerance
-    - total: int, total number of predictions
+        correct (int): Number of correct predictions.
+        total (int): Total number of predictions.
     """
-    # Flatten in case tensors are not 1D
-    output = output.view(-1)
-    target = target.view(-1)
-    
-    # Count predictions that are within the tolerance
-    correct = (torch.abs(output - target) < tol).sum().item()
-    total = target.numel()
-    
+    # Get the predicted bin index by finding the max logit
+    predicted_bins = torch.argmax(predictions, dim=1)  # Shape: (batch_size,)
+
+    # Compare with ground truth
+    correct = (predicted_bins == ground_truth).sum().item()
+
+    # correct = ((predicted_bins == ground_truth) | 
+    #         (predicted_bins == ground_truth + 1) | 
+    #         (predicted_bins == ground_truth - 1)).sum().item()
+
+    total = ground_truth.size(0)
+
     return correct, total
 
 # ------------------------------------------------------------------------------# 
 
+def calculate_bins_with_min_score(S_min=0.3, S_max=1.0, gamma=2, num_bins=10):
+    # Transformed bin edges (equally spaced in [0, 1])
+    transformed_bin_edges = torch.linspace(0, 1, num_bins + 1, device=device)
+
+    # Rescale bin edges to the range [S_min, S_max]
+    original_bin_edges = S_min + (transformed_bin_edges ** (1 / gamma)) * (S_max - S_min)
+    # return original_bin_edges
+
+    return torch.linspace(0, 1, num_bins + 1)
+
+
+def compute_bin_score(cur_fidelity_score, bins):
+    """
+    Maps fidelity scores into hardcoded bins and computes the bin score (midpoint of the bin).
+    """
+
+    bins = torch.tensor(bins, dtype=torch.float32)
+    bin_indices = torch.bucketize(cur_fidelity_score, bins) - 1
+    bin_indices = torch.clamp(bin_indices, 0, len(bins) - 2)
+
+    return bin_indices
+
+# ------------------------------------------------------------------------------# 
 
 
 def train():
     dataset = whole_process_evaluate.Evaluation_Dataset('program_output_dataset')
     total_samples = len(dataset)
-    chunk_size = 50000
+    chunk_size = 100
     epochs_per_chunk = 20
 
     best_val_loss = float('inf')
 
     past_particle_value = 0
+    bins = calculate_bins_with_min_score()
 
     print("total_samples",total_samples)
 
@@ -153,7 +179,9 @@ def train():
 
             # Convert the target value to a tensor
             particle_value_tensor = torch.tensor(particle_value, dtype=torch.float32).to(device)
-            gt_state_value.append(particle_value_tensor)
+            binned_score = compute_bin_score(particle_value_tensor, bins)
+            print("binned_score", binned_score)
+            gt_state_value.append(binned_score)
 
         print(f"Loaded {len(graphs)} graphs from {chunk_start} to {chunk_end}.")
 
@@ -232,7 +260,6 @@ def train():
             # Save model if validation improves
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
-                best_accuracy = val_accuracy
                 save_models()
                 print("Best model saved for current chunk.")
 
@@ -247,115 +274,8 @@ def train():
 
 
 
-def eval():
-    dataset = whole_process_evaluate.Evaluation_Dataset('program_output_dataset')
-    total_samples = len(dataset)
-    chunk_size = 1000
-
-    batch_size = 1
-
-    best_val_loss = float('inf')
-
-    past_particle_value = 0
-
-    print("total_samples",total_samples)
-
-    # Loop over dataset in chunks
-    for chunk_start in range(0, total_samples, chunk_size):
-        chunk_end = min(chunk_start + chunk_size, total_samples)
-        print(f"Processing graphs {chunk_start} to {chunk_end}...")
-
-        graphs = []
-        gt_state_value = []
-        
-        # Process one chunk of graphs
-        for idx in tqdm(range(chunk_start, chunk_end), desc="Preprocessing graphs"):
-            data = dataset[idx]
-            (particle_value, stroke_node_features, output_brep_edges, gt_brep_edges,
-             stroke_cloud_loops, strokes_perpendicular, loop_neighboring_vertical,
-             loop_neighboring_horizontal, loop_neighboring_contained, stroke_to_loop,
-             stroke_to_edge, is_all_edges_used) = data
-
-        
-            if not is_all_edges_used or particle_value == past_particle_value:
-                continue
-            
-            past_particle_value = particle_value
-            # Build the graph
-            gnn_graph = Preprocessing.gnn_graph.SketchLoopGraph(
-                stroke_cloud_loops, 
-                stroke_node_features, 
-                strokes_perpendicular, 
-                loop_neighboring_vertical, 
-                loop_neighboring_horizontal, 
-                loop_neighboring_contained,
-                stroke_to_loop,
-                stroke_to_edge
-            )
-
-        
-            # if particle_value != past_particle_value:
-            #     past_particle_value = particle_value
-            #     Encoders.helper.vis_left_graph(gnn_graph['stroke'].x.cpu().numpy())
-            #     Encoders.helper.vis_brep(output_brep_edges.cpu().numpy())
-
-
-            gnn_graph.to_device_withPadding(device)
-            graphs.append(gnn_graph)
-
-            # Convert the target value to a tensor
-            particle_value_tensor = torch.tensor(particle_value, dtype=torch.float32).to(device)
-            gt_state_value.append(particle_value_tensor)
-
-        print(f"Loaded {len(graphs)} graphs from {chunk_start} to {chunk_end}.")
-
-        # Split the chunk into training and validation sets (80-20 split)
-
-        # Convert graphs to heterogeneous data format
-        hetero_train_graphs = [Preprocessing.gnn_graph.convert_to_hetero_data(graph) for graph in graphs]
-
-        # Create DataLoaders for the current chunk
-        graph_train_loader = DataLoader(hetero_train_graphs, batch_size=1, shuffle=True)
-        score_train_loader = DataLoader(gt_state_value, batch_size=1, shuffle=True)
-
-
-        # Train on the current chunk for a fixed number of epochs
-        for epoch in range(1):
-            train_loss = 0.0
-            total_correct = 0
-            total_samples_batch = 0
-
-            graph_encoder.eval()
-            graph_decoder.eval()
-
-            total_iterations = min(len(graph_train_loader), len(score_train_loader))
-            # Training loop for this chunk
-            for hetero_batch, batch_scores in tqdm(zip(graph_train_loader, score_train_loader), 
-                                                   dynamic_ncols=True, total=total_iterations):
-                optimizer.zero_grad()
-                x_dict = graph_encoder(hetero_batch.x_dict, hetero_batch.edge_index_dict)
-                output = graph_decoder(x_dict)
-
-                loss = criterion(output, batch_scores)
-                loss.backward()
-                optimizer.step()
-
-                print("output", output[0])
-                print("batch_scores", batch_scores[0])
-                Encoders.helper.vis_left_graph(hetero_batch[0]['stroke'].x.cpu().numpy())
-
-                train_loss += loss.item()
-                correct, total = compute_accuracy(output, batch_scores)
-                total_correct += correct
-                total_samples_batch += total
-
-            train_accuracy = total_correct / total_samples_batch
-            train_loss = train_loss / total_samples_batch
-            print(f"Epoch {epoch+1}/{epochs_per_chunk} - Training Loss: {train_loss:.4f}, Accuracy: {train_accuracy:.4%}")
-
-
 # ------------------------------------------------------------------------------# 
 
 
 
-eval()
+train()

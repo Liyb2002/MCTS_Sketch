@@ -113,7 +113,6 @@ class Chamfer_Decoder(nn.Module):
         return torch.sigmoid(self.decoder(x_dict['stroke']))
 
 
-
 class Fidelity_Decoder(nn.Module):
     def __init__(self, hidden_channels=256, num_loop_nodes=400, num_stroke_nodes=400):
         super(Fidelity_Decoder, self).__init__()
@@ -191,6 +190,85 @@ class Fidelity_Decoder(nn.Module):
         # Ensure output is in [0, 1] range
         return torch.sigmoid(combined_score)
 
+
+
+
+class Fidelity_Decoder_bin(nn.Module):
+    def __init__(self, hidden_channels=256, num_loop_nodes=400, num_stroke_nodes=400, num_classes=10):
+        super(Fidelity_Decoder_bin, self).__init__()
+
+        # Decoders for loop and stroke embeddings
+        self.loop_decoder = nn.Sequential(
+            nn.Linear(128, hidden_channels),
+            nn.ReLU(inplace=True),
+            nn.Dropout(p=0.1),
+            nn.Linear(hidden_channels, 64),
+            nn.ReLU(inplace=True),
+            nn.Dropout(p=0.1),
+            nn.Linear(64, num_classes)  # Single output for continuous prediction
+        )
+
+        self.stroke_decoder = nn.Sequential(
+            nn.Linear(128, hidden_channels),
+            nn.ReLU(inplace=True),
+            nn.Dropout(p=0.1),
+            nn.Linear(hidden_channels, 64),
+            nn.ReLU(inplace=True),
+            nn.Dropout(p=0.1),
+            nn.Linear(64, num_classes)  # Single output for continuous prediction
+        )
+
+        self.num_loop_nodes = num_loop_nodes
+        self.num_stroke_nodes = num_stroke_nodes
+        self.num_classes = num_classes
+
+    def forward(self, x_dict, for_particle=False):
+        if not for_particle: 
+            loop_embeddings = x_dict['loop']
+            stroke_embeddings = x_dict['stroke']
+
+            # Compute batch size dynamically
+            batch_size = loop_embeddings.size(0) // self.num_loop_nodes
+            feature_dim = loop_embeddings.size(-1)
+
+            # Reshape embeddings
+            loop_embeddings = loop_embeddings.view(batch_size, self.num_loop_nodes, feature_dim)
+            stroke_embeddings = stroke_embeddings.view(batch_size, self.num_stroke_nodes, feature_dim)
+        else:
+            loop_embeddings = x_dict['loop']
+            stroke_embeddings = x_dict['stroke']
+            feature_dim = loop_embeddings.size(-1)
+
+            # Pad loop_embeddings
+            if loop_embeddings.size(0) < self.num_loop_nodes:
+                padding_size = self.num_loop_nodes - loop_embeddings.size(0)
+                loop_embeddings = F.pad(loop_embeddings, (0, 0, 0, padding_size))
+            else:
+                loop_embeddings = loop_embeddings[:self.num_loop_nodes]
+
+            # Pad stroke_embeddings
+            if stroke_embeddings.size(0) < self.num_stroke_nodes:
+                padding_size = self.num_stroke_nodes - stroke_embeddings.size(0)
+                stroke_embeddings = F.pad(stroke_embeddings, (0, 0, 0, padding_size))
+            else:
+                stroke_embeddings = stroke_embeddings[:self.num_stroke_nodes]
+
+            # Reshape to batch_size=1
+            loop_embeddings = loop_embeddings.unsqueeze(0)
+            stroke_embeddings = stroke_embeddings.unsqueeze(0)
+
+        # Decode each node separately
+        loop_scores = self.loop_decoder(loop_embeddings)  # Shape: [batch_size, num_loop_nodes, num_classes]
+        stroke_scores = self.stroke_decoder(stroke_embeddings)  # Shape: [batch_size, num_stroke_nodes, num_classes]
+
+        # Average over all nodes instead of summing (to normalize output scale)
+        loop_graph_score = loop_scores.mean(dim=1)  # Shape: [batch_size, num_classes]
+        stroke_graph_score = stroke_scores.mean(dim=1)  # Shape: [batch_size, num_classes]
+
+        # Combine scores from loops and strokes
+        combined_score = (loop_graph_score + stroke_graph_score) / 2  # Shape: [batch_size, num_classes]
+
+        return torch.softmax(combined_score, dim=-1)
 
 
 
