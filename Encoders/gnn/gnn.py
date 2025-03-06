@@ -197,35 +197,53 @@ class Fidelity_Decoder_bin(nn.Module):
     def __init__(self, hidden_channels=256, num_loop_nodes=400, num_stroke_nodes=400, num_classes=10):
         super(Fidelity_Decoder_bin, self).__init__()
 
-        # Decoders for loop and stroke embeddings
-        self.loop_decoder = nn.Sequential(
-            nn.Linear(128, hidden_channels),
+        # Transform the last feature into a 128D vector using a linear layer
+        self.last_feature_embedding = nn.Linear(1, 128)
+
+        # Adjust stroke decoder input size (original 128 + 128 from last feature)
+        self.stroke_decoder = nn.Sequential(
+            nn.Linear(256, hidden_channels, bias=True),
             nn.ReLU(inplace=True),
             nn.Dropout(p=0.1),
-            nn.Linear(hidden_channels, 64),
+            nn.Linear(hidden_channels, 64, bias=True),
             nn.ReLU(inplace=True),
             nn.Dropout(p=0.1),
-            nn.Linear(64, num_classes)  # Single output for continuous prediction
+            nn.Linear(64, num_classes, bias=True)
         )
 
-        self.stroke_decoder = nn.Sequential(
-            nn.Linear(128, hidden_channels),
+        self.loop_decoder = nn.Sequential(
+            nn.Linear(128, hidden_channels, bias=True),
             nn.ReLU(inplace=True),
             nn.Dropout(p=0.1),
-            nn.Linear(hidden_channels, 64),
+            nn.Linear(hidden_channels, 64, bias=True),
             nn.ReLU(inplace=True),
             nn.Dropout(p=0.1),
-            nn.Linear(64, num_classes)  # Single output for continuous prediction
+            nn.Linear(64, num_classes, bias=True)
         )
 
         self.num_loop_nodes = num_loop_nodes
         self.num_stroke_nodes = num_stroke_nodes
         self.num_classes = num_classes
 
-    def forward(self, x_dict, for_particle=False):
+    def forward(self, x_dict, hetero_batch, for_particle=False):
         if not for_particle: 
             loop_embeddings = x_dict['loop']
             stroke_embeddings = x_dict['stroke']
+
+            # Extract last feature as a float tensor
+            last_feature = hetero_batch.x_dict['stroke'][:, -1].unsqueeze(-1).float()
+
+            # Normalize last feature before embedding
+            last_feature = (last_feature - last_feature.mean()) / (last_feature.std() + 1e-5)
+
+            # Pass through a linear layer to get a 128D embedding
+            last_feature_embedded = self.last_feature_embedding(last_feature)  # Shape: [num_strokes, 128]
+
+            # Normalize stroke embeddings
+            stroke_embeddings = (stroke_embeddings - stroke_embeddings.mean()) / (stroke_embeddings.std() + 1e-5)
+
+            # Concatenate last feature embedding with stroke embeddings
+            stroke_embeddings = torch.cat([stroke_embeddings, last_feature_embedded], dim=-1)  # Shape: [num_strokes, 256]
 
             # Compute batch size dynamically
             batch_size = loop_embeddings.size(0) // self.num_loop_nodes
@@ -233,11 +251,22 @@ class Fidelity_Decoder_bin(nn.Module):
 
             # Reshape embeddings
             loop_embeddings = loop_embeddings.view(batch_size, self.num_loop_nodes, feature_dim)
-            stroke_embeddings = stroke_embeddings.view(batch_size, self.num_stroke_nodes, feature_dim)
+            stroke_embeddings = stroke_embeddings.view(batch_size, self.num_stroke_nodes, 256)
         else:
             loop_embeddings = x_dict['loop']
             stroke_embeddings = x_dict['stroke']
             feature_dim = loop_embeddings.size(-1)
+
+            # Extract last feature and transform
+            last_feature = hetero_batch.x_dict['stroke'][:, -1].unsqueeze(-1).float()
+            last_feature = (last_feature - last_feature.mean()) / (last_feature.std() + 1e-5)
+            last_feature_embedded = self.last_feature_embedding(last_feature)
+
+            # Normalize stroke embeddings before concatenation
+            stroke_embeddings = (stroke_embeddings - stroke_embeddings.mean()) / (stroke_embeddings.std() + 1e-5)
+
+            # Concatenate last feature embedding
+            stroke_embeddings = torch.cat([stroke_embeddings, last_feature_embedded], dim=-1)
 
             # Pad loop_embeddings
             if loop_embeddings.size(0) < self.num_loop_nodes:
@@ -261,9 +290,9 @@ class Fidelity_Decoder_bin(nn.Module):
         loop_scores = self.loop_decoder(loop_embeddings)  # Shape: [batch_size, num_loop_nodes, num_classes]
         stroke_scores = self.stroke_decoder(stroke_embeddings)  # Shape: [batch_size, num_stroke_nodes, num_classes]
 
-        # Average over all nodes instead of summing (to normalize output scale)
-        loop_graph_score = loop_scores.sum(dim=1)  # Shape: [batch_size, num_classes]
-        stroke_graph_score = stroke_scores.sum(dim=1)  # Shape: [batch_size, num_classes]
+        # Aggregate over all nodes instead of summing (to normalize output scale)
+        loop_graph_score = loop_scores.mean(dim=1)  # Shape: [batch_size, num_classes]
+        stroke_graph_score = stroke_scores.mean(dim=1)  # Shape: [batch_size, num_classes]
 
         # Combine scores from loops and strokes
         combined_score = loop_graph_score + stroke_graph_score  # Shape: [batch_size, num_classes]
