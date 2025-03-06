@@ -162,8 +162,8 @@ def process_contrastive_batch(graphs, gt_scores):
 def train():
     dataset = whole_process_evaluate.Evaluation_Dataset('program_output_dataset')
     total_samples = len(dataset)
-    chunk_size = 50000
-    epochs_per_chunk = 20
+    chunk_size = 500
+    epochs_per_chunk = 10
 
     best_val_loss = float('inf')
 
@@ -265,6 +265,13 @@ def train():
 
                 train_loss += loss.item()
                 correct, total = compute_accuracy(output, batch_scores)
+            
+                # print("Predicted:", output)  # Get class predictions
+                # print("Predicted:", output.argmax(dim=-1).cpu().numpy())  # Get class predictions
+                print("Ground Truth:", batch_scores.cpu().numpy())
+                print("-------------")
+
+
                 total_correct += correct
                 total_samples_batch += total
 
@@ -311,12 +318,15 @@ def train():
         del graph_train_loader, score_train_loader, graph_val_loader, score_val_loader
         torch.cuda.empty_cache()
 
+        break
+
 
 def eval():
     dataset = whole_process_evaluate.Evaluation_Dataset('program_output_dataset')
     total_samples = len(dataset)
     chunk_size = 100  # Smaller chunk size for evaluation
     batch_size = 1
+    prev_bin_score = 0
 
     bins = calculate_bins_with_min_score()
 
@@ -346,8 +356,12 @@ def eval():
                  loop_neighboring_horizontal, loop_neighboring_contained, stroke_to_loop,
                  stroke_to_edge, is_all_edges_used) = data
 
-                if not is_all_edges_used:
+                cur_bin_score = compute_bin_score(torch.tensor(particle_value, dtype=torch.float32), bins)
+
+                if not is_all_edges_used or cur_bin_score == prev_bin_score:
                     continue
+                
+                prev_bin_score = cur_bin_score
 
                 # Build the graph
                 gnn_graph = Preprocessing.gnn_graph.SketchLoopGraph(
@@ -496,4 +510,4 @@ def eval_contrastive():
 
 
 
-eval()
+train()

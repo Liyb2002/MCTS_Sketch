@@ -262,13 +262,13 @@ class Fidelity_Decoder_bin(nn.Module):
         stroke_scores = self.stroke_decoder(stroke_embeddings)  # Shape: [batch_size, num_stroke_nodes, num_classes]
 
         # Average over all nodes instead of summing (to normalize output scale)
-        loop_graph_score = loop_scores.mean(dim=1)  # Shape: [batch_size, num_classes]
-        stroke_graph_score = stroke_scores.mean(dim=1)  # Shape: [batch_size, num_classes]
+        loop_graph_score = loop_scores.sum(dim=1)  # Shape: [batch_size, num_classes]
+        stroke_graph_score = stroke_scores.sum(dim=1)  # Shape: [batch_size, num_classes]
 
         # Combine scores from loops and strokes
-        combined_score = (loop_graph_score + stroke_graph_score) / 2  # Shape: [batch_size, num_classes]
+        combined_score = loop_graph_score + stroke_graph_score  # Shape: [batch_size, num_classes]
 
-        return combined_score
+        return combined_score  # Raw logits for CrossEntropyLoss
 
 
 
