@@ -57,6 +57,7 @@ os.makedirs(save_dir, exist_ok=True)
 def load_models():
     graph_encoder.load_state_dict(torch.load(os.path.join(save_dir, 'graph_encoder.pth')))
     graph_decoder.load_state_dict(torch.load(os.path.join(save_dir, 'graph_decoder.pth')))
+    print("Models loaded successfully!")  
 
 
 def save_models():
@@ -91,6 +92,44 @@ def compute_accuracy(output, target, tol=0.1):
     total = target.numel()
     
     return correct, total
+
+
+def process_contrastive_batch(graphs, gt_scores):
+    if len(graphs) < 2:
+        print("Skipping batch (not enough graphs for contrastive evaluation).")
+        return 0, 0  # No valid pairs
+
+    # Convert to heterogeneous graphs
+    hetero_graphs = [Preprocessing.gnn_graph.convert_to_hetero_data(graph) for graph in graphs]
+
+    total_correct = 0
+    total_pairs = 0
+
+    with torch.no_grad():
+        # Iterate over consecutive pairs (graph[0] vs graph[1], then graph[1] vs graph[2], etc.)
+        for i in range(len(graphs) - 1):
+            graph1, graph2 = hetero_graphs[i], hetero_graphs[i + 1]
+            gt1, gt2 = gt_scores[i], gt_scores[i + 1]
+
+            # Forward pass through the models
+            x_dict1 = graph_encoder(graph1.x_dict, graph1.edge_index_dict)
+            x_dict2 = graph_encoder(graph2.x_dict, graph2.edge_index_dict)
+
+            pred1 = graph_decoder(x_dict1)
+            pred2 = graph_decoder(x_dict2)
+
+            # Check if the predicted ranking matches the ground truth ranking
+            if (pred1 < pred2 and gt1 < gt2) or (pred1 >= pred2 and gt1 >= gt2):
+                total_correct += 1
+            
+            print("\n---  ---")
+            print("pred1:", pred1[0], "gt1", gt1)
+            print("pred2:", pred2[0], "gt2", gt2)
+
+            total_pairs += 1
+    
+    print(f"Total Correct: {total_correct}, Total Pairs: {total_pairs}")
+    return total_correct, total_pairs
 
 # ------------------------------------------------------------------------------# 
 
@@ -352,6 +391,91 @@ def eval():
             train_accuracy = total_correct / total_samples_batch
             train_loss = train_loss / total_samples_batch
             print(f"Epoch {epoch+1}/{epochs_per_chunk} - Training Loss: {train_loss:.4f}, Accuracy: {train_accuracy:.4%}")
+
+
+
+def eval_contrastive():
+    dataset = whole_process_evaluate.Evaluation_Dataset('program_output_dataset')
+    total_samples = len(dataset)
+    batch_size = 4  # Each batch should contain at least 2 graphs for contrastive evaluation
+
+    print("total_samples", total_samples)
+
+    load_models()
+    graph_encoder.eval()
+    graph_decoder.eval()
+
+    total_correct = 0
+    total_pairs = 0
+    past_particle_value = 0
+
+    graphs = []
+    gt_scores = []
+    prev_stroke_count = None
+
+    with torch.no_grad():
+        print("Processing graphs in dynamic chunks...")
+
+        for idx in tqdm(range(total_samples), desc="Preprocessing graphs"):
+            data = dataset[idx]
+            (particle_value, stroke_node_features, output_brep_edges, gt_brep_edges,
+             stroke_cloud_loops, strokes_perpendicular, loop_neighboring_vertical,
+             loop_neighboring_horizontal, loop_neighboring_contained, stroke_to_loop,
+             stroke_to_edge, is_all_edges_used) = data
+
+            if not is_all_edges_used or particle_value == past_particle_value:
+                continue
+
+            
+            past_particle_value = particle_value
+            stroke_count = len(stroke_node_features)  # Category identifier
+
+            # Start a new chunk if:
+            # - We reached 1000 graphs
+            # - The stroke count is different from the previous one
+            if len(graphs) >= 50 or (prev_stroke_count is not None and stroke_count != prev_stroke_count):
+                print(f"Processing batch with {len(graphs)} graphs (Stroke Count: {prev_stroke_count})")
+                correct, pairs = process_contrastive_batch(graphs, gt_scores)
+
+                total_correct += correct
+                total_pairs += pairs
+
+                # Reset buffers for next batch
+                graphs = []
+                gt_scores = []
+
+            # Store the current graph and ground truth bin score
+            gnn_graph = Preprocessing.gnn_graph.SketchLoopGraph(
+                stroke_cloud_loops,
+                stroke_node_features,
+                strokes_perpendicular,
+                loop_neighboring_vertical,
+                loop_neighboring_horizontal,
+                loop_neighboring_contained,
+                stroke_to_loop,
+                stroke_to_edge
+            )
+
+            gnn_graph.to_device_withPadding(device)
+            graphs.append(gnn_graph)
+
+            # Compute binned ground truth score
+            particle_value_tensor = torch.tensor(particle_value, dtype=torch.float32).to(device)
+            gt_scores.append(particle_value_tensor)
+
+            prev_stroke_count = stroke_count  # Track category for batching
+
+        # Process the final batch
+        if graphs:
+            print(f"Processing final batch with {len(graphs)} graphs (Stroke Count: {prev_stroke_count})")
+            correct, pairs = process_contrastive_batch(graphs, gt_scores, batch_size, bins)
+            total_correct += correct
+            total_pairs += pairs
+
+    # Compute overall contrastive accuracy
+    final_accuracy = total_correct / total_pairs if total_pairs > 0 else 0
+
+    print(f"Contrastive Evaluation Accuracy: {final_accuracy:.4%}")
 
 
 # ------------------------------------------------------------------------------# 

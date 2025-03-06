@@ -10,6 +10,7 @@ import Preprocessing.proc_CAD.helper
 import Encoders.helper
 
 import whole_process_evaluate
+from collections import defaultdict
 
 
 
@@ -55,8 +56,8 @@ save_dir = os.path.join(current_dir, 'checkpoints', 'fidelity_prediction_bin')
 os.makedirs(save_dir, exist_ok=True)
 
 def load_models():
-    graph_encoder.load_state_dict(torch.load(os.path.join(save_dir, 'graph_encoder.pth')))
-    graph_decoder.load_state_dict(torch.load(os.path.join(save_dir, 'graph_decoder.pth')))
+    graph_encoder.load_state_dict(torch.load(os.path.join(save_dir, 'graph_encoder.pth'), weights_only=True))
+    graph_decoder.load_state_dict(torch.load(os.path.join(save_dir, 'graph_decoder.pth'), weights_only=True))
 
 
 def save_models():
@@ -118,18 +119,56 @@ def compute_bin_score(cur_fidelity_score, bins):
 
     return bin_indices
 
+
+def process_contrastive_batch(graphs, gt_scores):
+    if len(graphs) < 2:
+        print("Skipping batch (not enough graphs for contrastive evaluation).")
+        return 0, 0  # No valid pairs
+
+    # Convert to heterogeneous graphs
+    hetero_graphs = [Preprocessing.gnn_graph.convert_to_hetero_data(graph) for graph in graphs]
+
+    total_correct = 0
+    total_pairs = 0
+
+    with torch.no_grad():
+        # Iterate over consecutive pairs (graph[0] vs graph[1], then graph[1] vs graph[2], etc.)
+        for i in range(len(graphs) - 1):
+            graph1, graph2 = hetero_graphs[i], hetero_graphs[i + 1]
+            gt1, gt2 = gt_scores[i], gt_scores[i + 1]
+
+            # Forward pass through the models
+            x_dict1 = graph_encoder(graph1.x_dict, graph1.edge_index_dict)
+            x_dict2 = graph_encoder(graph2.x_dict, graph2.edge_index_dict)
+
+            pred1 = graph_decoder(x_dict1).argmax(dim=-1)  # Predicted bin for graph1
+            pred2 = graph_decoder(x_dict2).argmax(dim=-1)  # Predicted bin for graph2
+
+            # print("\n---  ---")
+            # print("pred1:", pred1, "gt1", gt1)
+            # print("pred2:", pred2, "gt2", gt2)
+
+            # Check if the predicted ranking matches the ground truth ranking
+            if (pred1 < pred2 and gt1 < gt2) or (pred1 >= pred2 and gt1 >= gt2):
+                total_correct += 1
+
+            total_pairs += 1
+    
+    print(f"Total Correct: {total_correct}, Total Pairs: {total_pairs}")
+    return total_correct, total_pairs
 # ------------------------------------------------------------------------------# 
 
 
 def train():
     dataset = whole_process_evaluate.Evaluation_Dataset('program_output_dataset')
     total_samples = len(dataset)
-    chunk_size = 10000
+    chunk_size = 50000
     epochs_per_chunk = 20
 
     best_val_loss = float('inf')
 
     past_particle_value = 0
+    prev_bin_score = 0
     bins = calculate_bins_with_min_score()
 
     print("total_samples",total_samples)
@@ -151,8 +190,12 @@ def train():
              stroke_to_edge, is_all_edges_used) = data
 
         
-            if not is_all_edges_used or particle_value == past_particle_value:
+            cur_bin_score = compute_bin_score(torch.tensor(particle_value, dtype=torch.float32), bins)
+
+            if not is_all_edges_used or cur_bin_score == prev_bin_score:
                 continue
+            
+            prev_bin_score = cur_bin_score
             
             past_particle_value = particle_value
             # Build the graph
@@ -167,20 +210,17 @@ def train():
                 stroke_to_edge
             )
 
-        
-            # if particle_value != past_particle_value:
-            #     past_particle_value = particle_value
-            #     Encoders.helper.vis_left_graph(gnn_graph['stroke'].x.cpu().numpy())
-            #     Encoders.helper.vis_brep(output_brep_edges.cpu().numpy())
+            # print("cur_bin_score", cur_bin_score)        
+            # Encoders.helper.vis_left_graph(gnn_graph['stroke'].x.cpu().numpy())
+            # Encoders.helper.vis_brep(output_brep_edges.cpu().numpy())
 
 
             gnn_graph.to_device_withPadding(device)
             graphs.append(gnn_graph)
 
             # Convert the target value to a tensor
-            particle_value_tensor = torch.tensor(particle_value, dtype=torch.float32).to(device)
-            binned_score = compute_bin_score(particle_value_tensor, bins)
-            print("binned_score", binned_score)
+            particle_value_tensor = torch.tensor(particle_value, dtype=torch.float32)
+            binned_score = compute_bin_score(particle_value_tensor, bins).to(device)
             gt_state_value.append(binned_score)
 
         print(f"Loaded {len(graphs)} graphs from {chunk_start} to {chunk_end}.")
@@ -275,7 +315,7 @@ def train():
 def eval():
     dataset = whole_process_evaluate.Evaluation_Dataset('program_output_dataset')
     total_samples = len(dataset)
-    chunk_size = 1000  # Smaller chunk size for evaluation
+    chunk_size = 100  # Smaller chunk size for evaluation
     batch_size = 1
 
     bins = calculate_bins_with_min_score()
@@ -325,8 +365,8 @@ def eval():
                 graphs.append(gnn_graph)
 
                 # Convert the target value to a tensor (bin classification)
-                particle_value_tensor = torch.tensor(particle_value, dtype=torch.float32).to(device)
-                binned_score = compute_bin_score(particle_value_tensor, bins)  # Convert to bin index
+                particle_value_tensor = torch.tensor(particle_value, dtype=torch.float32)
+                binned_score = compute_bin_score(particle_value_tensor, bins).to(device)
                 gt_state_value.append(torch.tensor(binned_score, dtype=torch.long).to(device))  # Convert to LongTensor for CrossEntropyLoss
 
             print(f"Loaded {len(graphs)} graphs from {chunk_start} to {chunk_end}.")
@@ -364,10 +404,96 @@ def eval():
     print(f"Evaluation Loss: {avg_loss:.4f}, Accuracy: {final_accuracy:.4%}")
 
 
+def eval_contrastive():
+    dataset = whole_process_evaluate.Evaluation_Dataset('program_output_dataset')
+    total_samples = len(dataset)
+    batch_size = 4  # Each batch should contain at least 2 graphs for contrastive evaluation
+    bins = calculate_bins_with_min_score()
+
+    print("total_samples", total_samples)
+
+    load_models()
+    graph_encoder.eval()
+    graph_decoder.eval()
+
+    total_correct = 0
+    total_pairs = 0
+    prev_bin_score = 0
+
+    graphs = []
+    gt_scores = []
+    prev_stroke_count = None
+
+    with torch.no_grad():
+        print("Processing graphs in dynamic chunks...")
+
+        for idx in tqdm(range(total_samples), desc="Preprocessing graphs"):
+            data = dataset[idx]
+            (particle_value, stroke_node_features, output_brep_edges, gt_brep_edges,
+             stroke_cloud_loops, strokes_perpendicular, loop_neighboring_vertical,
+             loop_neighboring_horizontal, loop_neighboring_contained, stroke_to_loop,
+             stroke_to_edge, is_all_edges_used) = data
+
+            cur_bin_score = compute_bin_score(torch.tensor(particle_value, dtype=torch.float32), bins)
+
+            if not is_all_edges_used or cur_bin_score == prev_bin_score:
+                continue
+
+            
+            prev_bin_score = cur_bin_score
+            stroke_count = len(stroke_node_features)  # Category identifier
+
+            # Start a new chunk if:
+            # - We reached 1000 graphs
+            # - The stroke count is different from the previous one
+            if len(graphs) >= 50 or (prev_stroke_count is not None and stroke_count != prev_stroke_count):
+                print(f"Processing batch with {len(graphs)} graphs (Stroke Count: {prev_stroke_count})")
+                correct, pairs = process_contrastive_batch(graphs, gt_scores)
+
+                total_correct += correct
+                total_pairs += pairs
+
+                # Reset buffers for next batch
+                graphs = []
+                gt_scores = []
+
+            # Store the current graph and ground truth bin score
+            gnn_graph = Preprocessing.gnn_graph.SketchLoopGraph(
+                stroke_cloud_loops,
+                stroke_node_features,
+                strokes_perpendicular,
+                loop_neighboring_vertical,
+                loop_neighboring_horizontal,
+                loop_neighboring_contained,
+                stroke_to_loop,
+                stroke_to_edge
+            )
+
+            gnn_graph.to_device_withPadding(device)
+            graphs.append(gnn_graph)
+
+            # Compute binned ground truth score
+            binned_score = torch.tensor(compute_bin_score(torch.tensor(particle_value, dtype=torch.float32), bins), dtype=torch.long).to(device)
+            gt_scores.append(binned_score)
+
+            prev_stroke_count = stroke_count  # Track category for batching
+
+        # Process the final batch
+        if graphs:
+            print(f"Processing final batch with {len(graphs)} graphs (Stroke Count: {prev_stroke_count})")
+            correct, pairs = process_contrastive_batch(graphs, gt_scores, batch_size, bins)
+            total_correct += correct
+            total_pairs += pairs
+
+    # Compute overall contrastive accuracy
+    final_accuracy = total_correct / total_pairs if total_pairs > 0 else 0
+
+    print(f"Contrastive Evaluation Accuracy: {final_accuracy:.4%}")
+
 
 
 # ------------------------------------------------------------------------------# 
 
 
 
-train()
+eval()

@@ -268,7 +268,7 @@ class Fidelity_Decoder_bin(nn.Module):
         # Combine scores from loops and strokes
         combined_score = (loop_graph_score + stroke_graph_score) / 2  # Shape: [batch_size, num_classes]
 
-        return torch.softmax(combined_score, dim=-1)
+        return combined_score
 
 
 
