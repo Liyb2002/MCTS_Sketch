@@ -113,9 +113,9 @@ class Chamfer_Decoder(nn.Module):
         return torch.sigmoid(self.decoder(x_dict['stroke']))
 
 
-class Fidelity_Decoder_MSE(nn.Module):
+class Fidelity_Decoder(nn.Module):
     def __init__(self, hidden_channels=512, num_stroke_nodes=400, num_heads=8, num_layers=4):
-        super(Fidelity_Decoder_MSE, self).__init__()
+        super(Fidelity_Decoder, self).__init__()
 
         self.num_stroke_nodes = num_stroke_nodes  
 

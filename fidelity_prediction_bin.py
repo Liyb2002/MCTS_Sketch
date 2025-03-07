@@ -160,8 +160,8 @@ def process_contrastive_batch(graphs, gt_scores):
 def train():
     dataset = whole_process_evaluate.Evaluation_Dataset('program_output_dataset')
     total_samples = len(dataset)
-    chunk_size = 500
-    epochs_per_chunk = 200
+    chunk_size = 50000
+    epochs_per_chunk = 20
 
     best_val_loss = float('inf')
 

@@ -3,15 +3,17 @@
 
 # python sketch_prediction.py
 
-python extrude_prediction.py
+# python extrude_prediction.py
 
-python fillet_prediction.py
+# python fillet_prediction.py
 
-python chamfer_prediction.py
+# python chamfer_prediction.py
 
-python operation_prediction.py
+# python operation_prediction.py
 
+python fidelity_prediction_bin.py
 
+python fidelity_prediction_contrastive.py
 
 # while true; do
 #     echo "Running generate_dataset.py..."
