@@ -37,8 +37,6 @@ from mpl_toolkits.mplot3d import Axes3D
 
 
 
-
-
 graph_encoder = Encoders.gnn.gnn.SemanticModule()
 graph_decoder = Encoders.gnn.gnn.Fidelity_Decoder_bin()
 
@@ -162,8 +160,8 @@ def process_contrastive_batch(graphs, gt_scores):
 def train():
     dataset = whole_process_evaluate.Evaluation_Dataset('program_output_dataset')
     total_samples = len(dataset)
-    chunk_size = 50000
-    epochs_per_chunk = 20
+    chunk_size = 500
+    epochs_per_chunk = 200
 
     best_val_loss = float('inf')
 
@@ -267,9 +265,9 @@ def train():
                 correct, total = compute_accuracy(output, batch_scores)
             
                 # print("Predicted:", output)  # Get class predictions
-                # print("Predicted:", output.argmax(dim=-1).cpu().numpy())  # Get class predictions
-                # print("Ground Truth:", batch_scores.cpu().numpy())
-                # print("-------------")
+                print("Predicted:", output.argmax(dim=-1).cpu().numpy())  # Get class predictions
+                print("Ground Truth:", batch_scores.cpu().numpy())
+                print("-------------")
 
 
                 total_correct += correct

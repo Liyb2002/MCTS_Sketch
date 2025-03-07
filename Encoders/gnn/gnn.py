@@ -114,190 +114,182 @@ class Chamfer_Decoder(nn.Module):
 
 
 class Fidelity_Decoder(nn.Module):
-    def __init__(self, hidden_channels=256, num_loop_nodes=400, num_stroke_nodes=400):
+    def __init__(self, hidden_channels=512, num_stroke_nodes=400, num_heads=8, num_layers=4, reduced_dim=32):
         super(Fidelity_Decoder, self).__init__()
 
-        # Decoders for loop and stroke embeddings
-        self.loop_decoder = nn.Sequential(
-            nn.Linear(128, hidden_channels),
-            nn.ReLU(inplace=True),
-            nn.Dropout(p=0.1),
-            nn.Linear(hidden_channels, 64),
-            nn.ReLU(inplace=True),
-            nn.Dropout(p=0.1),
-            nn.Linear(64, 1)  # Single output for continuous prediction
+        # **Cross-Attention Module**
+        self.cross_attn = nn.MultiheadAttention(embed_dim=128, num_heads=num_heads, dropout=0.1, batch_first=True)
+
+        # **Reduce Stroke Embedding Size**
+        self.global_mlp = nn.Sequential(
+            nn.Linear(128, reduced_dim),
+            nn.ReLU(),
+            nn.BatchNorm1d(reduced_dim),
         )
 
-        self.stroke_decoder = nn.Sequential(
-            nn.Linear(128, hidden_channels),
-            nn.ReLU(inplace=True),
-            nn.Dropout(p=0.1),
-            nn.Linear(hidden_channels, 64),
-            nn.ReLU(inplace=True),
-            nn.Dropout(p=0.1),
-            nn.Linear(64, 1)  # Single output for continuous prediction
+        # **MLP to Transform Ratio**
+        self.ratio_mlp = nn.Sequential(
+            nn.Linear(1, 16),
+            nn.ReLU(),
+            nn.Linear(16, 1),
         )
 
-        self.num_loop_nodes = num_loop_nodes
-        self.num_stroke_nodes = num_stroke_nodes
+        # **Final Regression Head (Outputs a Single Value)**
+        self.regressor = nn.Sequential(
+            nn.Linear(reduced_dim + 1, hidden_channels),  # +1 for ratio
+            nn.ReLU(),
+            nn.BatchNorm1d(hidden_channels),
+            nn.Dropout(0.2),
 
-    def forward(self, x_dict, for_particle=False):
-        if not for_particle: 
-            loop_embeddings = x_dict['loop']
-            stroke_embeddings = x_dict['stroke']
+            nn.Linear(hidden_channels, hidden_channels // 2),
+            nn.ReLU(),
+            nn.BatchNorm1d(hidden_channels // 2),
+            nn.Dropout(0.2),
 
-            # Compute batch size dynamically
-            batch_size = loop_embeddings.size(0) // self.num_loop_nodes
-            feature_dim = loop_embeddings.size(-1)
+            nn.Linear(hidden_channels // 2, hidden_channels // 4),
+            nn.ReLU(),
+            nn.BatchNorm1d(hidden_channels // 4),
+            nn.Dropout(0.2),
 
-            # Reshape embeddings
-            loop_embeddings = loop_embeddings.view(batch_size, self.num_loop_nodes, feature_dim)
-            stroke_embeddings = stroke_embeddings.view(batch_size, self.num_stroke_nodes, feature_dim)
-        else:
-            loop_embeddings = x_dict['loop']
-            stroke_embeddings = x_dict['stroke']
-            feature_dim = loop_embeddings.size(-1)
+            nn.Linear(hidden_channels // 4, 64),
+            nn.ReLU(),
+            nn.BatchNorm1d(64),
+            nn.Dropout(0.2),
 
-            # Pad loop_embeddings
-            if loop_embeddings.size(0) < self.num_loop_nodes:
-                padding_size = self.num_loop_nodes - loop_embeddings.size(0)
-                loop_embeddings = F.pad(loop_embeddings, (0, 0, 0, padding_size))
-            else:
-                loop_embeddings = loop_embeddings[:self.num_loop_nodes]
+            nn.Linear(64, 1)  # **Final output is a single value**
+        )
 
-            # Pad stroke_embeddings
-            if stroke_embeddings.size(0) < self.num_stroke_nodes:
-                padding_size = self.num_stroke_nodes - stroke_embeddings.size(0)
-                stroke_embeddings = F.pad(stroke_embeddings, (0, 0, 0, padding_size))
-            else:
-                stroke_embeddings = stroke_embeddings[:self.num_stroke_nodes]
+    def forward(self, x_dict, hetero_batch):
+        stroke_embeddings = x_dict['stroke']  # Shape: (batch_size * 400, 128)
+        last_column = hetero_batch.x_dict['stroke'][:, -1]  # Shape: (batch_size * 400,)
 
-            # Reshape to batch_size=1
-            loop_embeddings = loop_embeddings.unsqueeze(0)
-            stroke_embeddings = stroke_embeddings.unsqueeze(0)
+        # Compute batch size
+        batch_size = stroke_embeddings.size(0) // self.num_stroke_nodes
 
-        # Decode each node separately
-        loop_scores = self.loop_decoder(loop_embeddings)  # Shape: [batch_size, num_loop_nodes, 1]
-        stroke_scores = self.stroke_decoder(stroke_embeddings)  # Shape: [batch_size, num_stroke_nodes, 1]
+        # Reshape stroke embeddings into (batch_size, 400, 128)
+        stroke_embeddings = stroke_embeddings.view(batch_size, self.num_stroke_nodes, 128)
+        last_column = last_column.view(batch_size, self.num_stroke_nodes)
 
-        # Average over all nodes instead of summing (to normalize output scale)
-        loop_graph_score = loop_scores.mean(dim=1)  # Shape: [batch_size, 1]
-        stroke_graph_score = stroke_scores.mean(dim=1)  # Shape: [batch_size, 1]
+        # **Mask out padding strokes (-1)**
+        valid_mask = (last_column != -1).float().unsqueeze(-1)  # Shape: (batch_size, 400, 1)
 
-        # Combine scores from loops and strokes
-        combined_score = (loop_graph_score + stroke_graph_score) / 2  # Shape: [batch_size, 1]
+        # **Compute Ratio of 1s to 0s**
+        count_1s = (last_column == 1).sum(dim=1).float()
+        count_0s = (last_column == 0).sum(dim=1).float()
+        ratio = count_1s / (count_0s + count_1s + 1e-5)  # Avoid division by zero
 
-        # Ensure output is in [0, 1] range
-        return torch.sigmoid(combined_score)
+        # **Transform Ratio Using Learnable MLP**
+        ratio_transformed = self.ratio_mlp(ratio.unsqueeze(-1))  # Shape: (batch_size, 1)
 
+        # **Select only strokes where last_column == 1**
+        select_mask = (last_column == 1).float().unsqueeze(-1)  # Shape: (batch_size, 400, 1)
+        selected_strokes = stroke_embeddings * select_mask  # Only keep strokes where last_column == 1
+
+        # **Apply Cross-Attention (1s attend to all strokes)**
+        attn_output, _ = self.cross_attn(
+            query=selected_strokes,
+            key=stroke_embeddings,
+            value=stroke_embeddings,
+            key_padding_mask=(last_column == -1)
+        )  # Output: (batch_size, 400, 128)
+
+        # **Masked Mean Pooling on Attention Output**
+        masked_sum = (attn_output * select_mask).sum(dim=1)
+        masked_count = select_mask.sum(dim=1).clamp(min=1)  # Avoid division by zero
+        global_representation = masked_sum / masked_count
+
+        # **Reduce the Size of Global Representation**
+        global_representation = self.global_mlp(global_representation)  # Shape: (batch_size, reduced_dim)
+
+        # **Concatenate Ratio Feature**
+        final_representation = torch.cat([global_representation, ratio_transformed], dim=-1)  # (batch_size, reduced_dim + 1)
+
+        # **Final Regression**
+        output = self.regressor(final_representation)  # Shape: (batch_size, 1)
+
+        return output, ratio  # Return ratio for contrastive loss
 
 
 
 class Fidelity_Decoder_bin(nn.Module):
-    def __init__(self, hidden_channels=256, num_loop_nodes=400, num_stroke_nodes=400, num_classes=10):
+    def __init__(self, hidden_channels=512, num_stroke_nodes=400, num_classes=10, num_heads=8, num_layers=4):
         super(Fidelity_Decoder_bin, self).__init__()
 
-        # Transform the last feature into a 128D vector using a linear layer
-        self.last_feature_embedding = nn.Linear(1, 128)
+        # **Cross-Attention Module**
+        self.cross_attn = nn.MultiheadAttention(embed_dim=128, num_heads=num_heads, dropout=0.1, batch_first=True)
 
-        # Adjust stroke decoder input size (original 128 + 128 from last feature)
-        self.stroke_decoder = nn.Sequential(
-            nn.Linear(256, hidden_channels, bias=True),
-            nn.ReLU(inplace=True),
-            nn.Dropout(p=0.1),
-            nn.Linear(hidden_channels, 64, bias=True),
-            nn.ReLU(inplace=True),
-            nn.Dropout(p=0.1),
-            nn.Linear(64, num_classes, bias=True)
+        # **Final Classifier MLP (Includes Ratio Feature)**
+        self.classifier = nn.Sequential(
+            nn.Linear(128 + 1, hidden_channels),  # +1 for the ratio feature
+            nn.ReLU(),
+            nn.BatchNorm1d(hidden_channels),
+            nn.Dropout(0.2),
+
+            nn.Linear(hidden_channels, hidden_channels // 2),
+            nn.ReLU(),
+            nn.BatchNorm1d(hidden_channels // 2),
+            nn.Dropout(0.2),
+
+            nn.Linear(hidden_channels // 2, hidden_channels // 4),
+            nn.ReLU(),
+            nn.BatchNorm1d(hidden_channels // 4),
+            nn.Dropout(0.2),
+
+            nn.Linear(hidden_channels // 4, 64),
+            nn.ReLU(),
+            nn.BatchNorm1d(64),
+            nn.Dropout(0.2),
+
+            nn.Linear(64, num_classes)
         )
 
-        self.loop_decoder = nn.Sequential(
-            nn.Linear(128, hidden_channels, bias=True),
-            nn.ReLU(inplace=True),
-            nn.Dropout(p=0.1),
-            nn.Linear(hidden_channels, 64, bias=True),
-            nn.ReLU(inplace=True),
-            nn.Dropout(p=0.1),
-            nn.Linear(64, num_classes, bias=True)
-        )
-
-        self.num_loop_nodes = num_loop_nodes
         self.num_stroke_nodes = num_stroke_nodes
         self.num_classes = num_classes
 
-    def forward(self, x_dict, hetero_batch, for_particle=False):
-        if not for_particle: 
-            loop_embeddings = x_dict['loop']
-            stroke_embeddings = x_dict['stroke']
+        # **Weight Initialization**
+        for m in self.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.kaiming_uniform_(m.weight, nonlinearity='relu')
 
-            # Extract last feature as a float tensor
-            last_feature = hetero_batch.x_dict['stroke'][:, -1].unsqueeze(-1).float()
+    def forward(self, x_dict, hetero_batch):
+        stroke_embeddings = x_dict['stroke']  # Shape: (batch_size * 400, 128)
+        last_column = hetero_batch.x_dict['stroke'][:, -1]  # Shape: (batch_size * 400,)
 
-            # Normalize last feature before embedding
-            last_feature = (last_feature - last_feature.mean()) / (last_feature.std() + 1e-5)
+        # Compute batch size
+        batch_size = stroke_embeddings.size(0) // self.num_stroke_nodes
 
-            # Pass through a linear layer to get a 128D embedding
-            last_feature_embedded = self.last_feature_embedding(last_feature)  # Shape: [num_strokes, 128]
+        # Reshape stroke embeddings into (batch_size, 400, 128)
+        stroke_embeddings = stroke_embeddings.view(batch_size, self.num_stroke_nodes, 128)
+        last_column = last_column.view(batch_size, self.num_stroke_nodes)
 
-            # Normalize stroke embeddings
-            stroke_embeddings = (stroke_embeddings - stroke_embeddings.mean()) / (stroke_embeddings.std() + 1e-5)
+        # **Compute Ratio of 1s to 0s**
+        count_1s = (last_column == 1).sum(dim=1).float()  # Shape: (batch_size,)
+        count_0s = (last_column == 0).sum(dim=1).float()  # Shape: (batch_size,)
+        ratio = count_1s / (count_0s + count_1s + 1e-5)  # Shape: (batch_size,) -> Avoid division by zero
 
-            # Concatenate last feature embedding with stroke embeddings
-            stroke_embeddings = torch.cat([stroke_embeddings, last_feature_embedded], dim=-1)  # Shape: [num_strokes, 256]
+        # **Select only strokes where last_column == 1**
+        select_mask = (last_column != -1).float().unsqueeze(-1)  # Shape: (batch_size, 400, 1)
+        selected_strokes = stroke_embeddings * select_mask  # Only keep strokes where last_column == 1
 
-            # Compute batch size dynamically
-            batch_size = loop_embeddings.size(0) // self.num_loop_nodes
-            feature_dim = loop_embeddings.size(-1)
+        # **Apply Cross-Attention (1s attend to all strokes)**
+        attn_output, _ = self.cross_attn(
+            query=selected_strokes,  # Shape: (batch_size, 400, 128)
+            key=stroke_embeddings,  # Shape: (batch_size, 400, 128)
+            value=stroke_embeddings,  # Shape: (batch_size, 400, 128)
+        )  # Output: (batch_size, 400, 128)
 
-            # Reshape embeddings
-            loop_embeddings = loop_embeddings.view(batch_size, self.num_loop_nodes, feature_dim)
-            stroke_embeddings = stroke_embeddings.view(batch_size, self.num_stroke_nodes, 256)
-        else:
-            loop_embeddings = x_dict['loop']
-            stroke_embeddings = x_dict['stroke']
-            feature_dim = loop_embeddings.size(-1)
+        # **Masked Mean Pooling on Attention Output**
+        masked_sum = (attn_output * select_mask).sum(dim=1)  # Sum selected strokes
+        masked_count = select_mask.sum(dim=1).clamp(min=1)  # Count selected strokes
+        global_representation = masked_sum / masked_count  # Compute masked mean
 
-            # Extract last feature and transform
-            last_feature = hetero_batch.x_dict['stroke'][:, -1].unsqueeze(-1).float()
-            last_feature = (last_feature - last_feature.mean()) / (last_feature.std() + 1e-5)
-            last_feature_embedded = self.last_feature_embedding(last_feature)
+        # **Concatenate Ratio as a Feature**
+        global_representation = torch.cat([global_representation, ratio.unsqueeze(-1)], dim=-1)  # (batch_size, 128 + 1)
 
-            # Normalize stroke embeddings before concatenation
-            stroke_embeddings = (stroke_embeddings - stroke_embeddings.mean()) / (stroke_embeddings.std() + 1e-5)
+        # **Final Classification**
+        output = self.classifier(global_representation)  # Shape: (batch_size, num_classes)
 
-            # Concatenate last feature embedding
-            stroke_embeddings = torch.cat([stroke_embeddings, last_feature_embedded], dim=-1)
-
-            # Pad loop_embeddings
-            if loop_embeddings.size(0) < self.num_loop_nodes:
-                padding_size = self.num_loop_nodes - loop_embeddings.size(0)
-                loop_embeddings = F.pad(loop_embeddings, (0, 0, 0, padding_size))
-            else:
-                loop_embeddings = loop_embeddings[:self.num_loop_nodes]
-
-            # Pad stroke_embeddings
-            if stroke_embeddings.size(0) < self.num_stroke_nodes:
-                padding_size = self.num_stroke_nodes - stroke_embeddings.size(0)
-                stroke_embeddings = F.pad(stroke_embeddings, (0, 0, 0, padding_size))
-            else:
-                stroke_embeddings = stroke_embeddings[:self.num_stroke_nodes]
-
-            # Reshape to batch_size=1
-            loop_embeddings = loop_embeddings.unsqueeze(0)
-            stroke_embeddings = stroke_embeddings.unsqueeze(0)
-
-        # Decode each node separately
-        loop_scores = self.loop_decoder(loop_embeddings)  # Shape: [batch_size, num_loop_nodes, num_classes]
-        stroke_scores = self.stroke_decoder(stroke_embeddings)  # Shape: [batch_size, num_stroke_nodes, num_classes]
-
-        # Aggregate over all nodes instead of summing (to normalize output scale)
-        loop_graph_score = loop_scores.mean(dim=1)  # Shape: [batch_size, num_classes]
-        stroke_graph_score = stroke_scores.mean(dim=1)  # Shape: [batch_size, num_classes]
-
-        # Combine scores from loops and strokes
-        combined_score = loop_graph_score + stroke_graph_score  # Shape: [batch_size, num_classes]
-
-        return combined_score  # Raw logits for CrossEntropyLoss
+        return output  # Raw logits for CrossEntropyLoss
 
 
 
