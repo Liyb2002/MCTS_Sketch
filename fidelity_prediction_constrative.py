@@ -318,7 +318,6 @@ def train():
         del graph_train_loader, score_train_loader, graph_val_loader, score_val_loader
         torch.cuda.empty_cache()
 
-        break
 
 
 def eval():

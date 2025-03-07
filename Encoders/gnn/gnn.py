@@ -113,101 +113,81 @@ class Chamfer_Decoder(nn.Module):
         return torch.sigmoid(self.decoder(x_dict['stroke']))
 
 
-class Fidelity_Decoder(nn.Module):
-    def __init__(self, hidden_channels=512, num_stroke_nodes=400, num_heads=8, num_layers=4, reduced_dim=32):
-        super(Fidelity_Decoder, self).__init__()
+class Fidelity_Decoder_MSE(nn.Module):
+    def __init__(self, hidden_channels=512, num_stroke_nodes=400, num_heads=8, num_layers=4):
+        super(Fidelity_Decoder_MSE, self).__init__()
+
+        self.num_stroke_nodes = num_stroke_nodes  
 
         # **Cross-Attention Module**
         self.cross_attn = nn.MultiheadAttention(embed_dim=128, num_heads=num_heads, dropout=0.1, batch_first=True)
 
-        # **Reduce Stroke Embedding Size**
-        self.global_mlp = nn.Sequential(
-            nn.Linear(128, reduced_dim),
+        # **Deeper Feature Reducer (128 → 8)**
+        self.feature_reducer = nn.Sequential(
+            nn.Linear(128, 64),
             nn.ReLU(),
-            nn.BatchNorm1d(reduced_dim),
+            nn.BatchNorm1d(64),
+            nn.Linear(64, 32),
+            nn.ReLU(),
+            nn.BatchNorm1d(32),
+            nn.Linear(32, 8)  # Final output: 8D
         )
 
-        # **MLP to Transform Ratio**
+        # **MLP for Non-Linear Ratio Transformation**
         self.ratio_mlp = nn.Sequential(
             nn.Linear(1, 16),
             nn.ReLU(),
-            nn.Linear(16, 1),
+            nn.BatchNorm1d(16),
+            nn.Linear(16, 8)
         )
 
-        # **Final Regression Head (Outputs a Single Value)**
-        self.regressor = nn.Sequential(
-            nn.Linear(reduced_dim + 1, hidden_channels),  # +1 for ratio
-            nn.ReLU(),
-            nn.BatchNorm1d(hidden_channels),
-            nn.Dropout(0.2),
-
-            nn.Linear(hidden_channels, hidden_channels // 2),
-            nn.ReLU(),
-            nn.BatchNorm1d(hidden_channels // 2),
-            nn.Dropout(0.2),
-
-            nn.Linear(hidden_channels // 2, hidden_channels // 4),
-            nn.ReLU(),
-            nn.BatchNorm1d(hidden_channels // 4),
-            nn.Dropout(0.2),
-
-            nn.Linear(hidden_channels // 4, 64),
-            nn.ReLU(),
-            nn.BatchNorm1d(64),
-            nn.Dropout(0.2),
-
-            nn.Linear(64, 1)  # **Final output is a single value**
-        )
+        # **Final Regressor (Predicts a Single Value)**
+        self.regressor = nn.Linear(8 + 8, 1)  # Combine transformed ratio (8D) and stroke features (8D)
 
     def forward(self, x_dict, hetero_batch):
         stroke_embeddings = x_dict['stroke']  # Shape: (batch_size * 400, 128)
         last_column = hetero_batch.x_dict['stroke'][:, -1]  # Shape: (batch_size * 400,)
 
-        # Compute batch size
-        batch_size = stroke_embeddings.size(0) // self.num_stroke_nodes
+        batch_size = stroke_embeddings.size(0) // self.num_stroke_nodes  
 
-        # Reshape stroke embeddings into (batch_size, 400, 128)
         stroke_embeddings = stroke_embeddings.view(batch_size, self.num_stroke_nodes, 128)
         last_column = last_column.view(batch_size, self.num_stroke_nodes)
 
-        # **Mask out padding strokes (-1)**
-        valid_mask = (last_column != -1).float().unsqueeze(-1)  # Shape: (batch_size, 400, 1)
-
         # **Compute Ratio of 1s to 0s**
-        count_1s = (last_column == 1).sum(dim=1).float()
-        count_0s = (last_column == 0).sum(dim=1).float()
-        ratio = count_1s / (count_0s + count_1s + 1e-5)  # Avoid division by zero
+        count_1s = (last_column == 1).sum(dim=1).float()  # Shape: (batch_size,)
+        count_0s = (last_column == 0).sum(dim=1).float()  # Shape: (batch_size,)
+        ratio = count_1s / (count_0s + count_1s + 1e-5)  # Shape: (batch_size,)
 
         # **Transform Ratio Using Learnable MLP**
-        ratio_transformed = self.ratio_mlp(ratio.unsqueeze(-1))  # Shape: (batch_size, 1)
+        ratio_transformed = self.ratio_mlp(ratio.unsqueeze(-1))  # Shape: (batch_size, 8)
 
-        # **Select only strokes where last_column == 1**
-        select_mask = (last_column == 1).float().unsqueeze(-1)  # Shape: (batch_size, 400, 1)
-        selected_strokes = stroke_embeddings * select_mask  # Only keep strokes where last_column == 1
+        # **Select only strokes where last_column != -1**
+        select_mask = (last_column != -1).float().unsqueeze(-1)  # Shape: (batch_size, 400, 1)
+        selected_strokes = stroke_embeddings * select_mask  
 
         # **Apply Cross-Attention (1s attend to all strokes)**
         attn_output, _ = self.cross_attn(
             query=selected_strokes,
             key=stroke_embeddings,
             value=stroke_embeddings,
-            key_padding_mask=(last_column == -1)
         )  # Output: (batch_size, 400, 128)
 
         # **Masked Mean Pooling on Attention Output**
-        masked_sum = (attn_output * select_mask).sum(dim=1)
-        masked_count = select_mask.sum(dim=1).clamp(min=1)  # Avoid division by zero
-        global_representation = masked_sum / masked_count
+        masked_sum = (attn_output * select_mask).sum(dim=1)  # Sum selected strokes
+        masked_count = select_mask.sum(dim=1).clamp(min=1)  # Count selected strokes
+        global_representation = masked_sum / masked_count  # Shape: (batch_size, 128)
 
-        # **Reduce the Size of Global Representation**
-        global_representation = self.global_mlp(global_representation)  # Shape: (batch_size, reduced_dim)
+        # **Reduce 128D → 8D using the Deeper Feature Reducer**
+        reduced_representation = self.feature_reducer(global_representation)  # Shape: (batch_size, 8)
 
-        # **Concatenate Ratio Feature**
-        final_representation = torch.cat([global_representation, ratio_transformed], dim=-1)  # (batch_size, reduced_dim + 1)
+        # **Concatenate Transformed Ratio (8D) with Stroke Features (8D)**
+        final_representation = torch.cat([reduced_representation, ratio_transformed], dim=-1)  # Shape: (batch_size, 8 + 8)
 
-        # **Final Regression**
+        # **Final Regression (Predicts a Single Continuous Value)**
         output = self.regressor(final_representation)  # Shape: (batch_size, 1)
 
-        return output, ratio  # Return ratio for contrastive loss
+        return output  # Raw scalar output for MSE Loss
+
 
 
 
@@ -215,82 +195,76 @@ class Fidelity_Decoder_bin(nn.Module):
     def __init__(self, hidden_channels=512, num_stroke_nodes=400, num_classes=10, num_heads=8, num_layers=4):
         super(Fidelity_Decoder_bin, self).__init__()
 
+        self.num_stroke_nodes = num_stroke_nodes  
+
         # **Cross-Attention Module**
         self.cross_attn = nn.MultiheadAttention(embed_dim=128, num_heads=num_heads, dropout=0.1, batch_first=True)
 
-        # **Final Classifier MLP (Includes Ratio Feature)**
-        self.classifier = nn.Sequential(
-            nn.Linear(128 + 1, hidden_channels),  # +1 for the ratio feature
-            nn.ReLU(),
-            nn.BatchNorm1d(hidden_channels),
-            nn.Dropout(0.2),
-
-            nn.Linear(hidden_channels, hidden_channels // 2),
-            nn.ReLU(),
-            nn.BatchNorm1d(hidden_channels // 2),
-            nn.Dropout(0.2),
-
-            nn.Linear(hidden_channels // 2, hidden_channels // 4),
-            nn.ReLU(),
-            nn.BatchNorm1d(hidden_channels // 4),
-            nn.Dropout(0.2),
-
-            nn.Linear(hidden_channels // 4, 64),
+        # **Deeper Feature Reducer (128 → 8)**
+        self.feature_reducer = nn.Sequential(
+            nn.Linear(128, 64),
             nn.ReLU(),
             nn.BatchNorm1d(64),
-            nn.Dropout(0.2),
-
-            nn.Linear(64, num_classes)
+            nn.Linear(64, 32),
+            nn.ReLU(),
+            nn.BatchNorm1d(32),
+            nn.Linear(32, 8)  # Final output: 8D
         )
 
-        self.num_stroke_nodes = num_stroke_nodes
-        self.num_classes = num_classes
+        # **MLP for Non-Linear Ratio Transformation**
+        self.ratio_mlp = nn.Sequential(
+            nn.Linear(1, 16),
+            nn.ReLU(),
+            nn.BatchNorm1d(16),
+            nn.Linear(16, 8)
+        )
 
-        # **Weight Initialization**
-        for m in self.modules():
-            if isinstance(m, nn.Linear):
-                nn.init.kaiming_uniform_(m.weight, nonlinearity='relu')
+        # **Final Classifier (One MLP)**
+        self.classifier = nn.Linear(8 + 8, num_classes)  # Combine transformed ratio (8D) and stroke features (8D)
 
     def forward(self, x_dict, hetero_batch):
         stroke_embeddings = x_dict['stroke']  # Shape: (batch_size * 400, 128)
         last_column = hetero_batch.x_dict['stroke'][:, -1]  # Shape: (batch_size * 400,)
 
-        # Compute batch size
-        batch_size = stroke_embeddings.size(0) // self.num_stroke_nodes
+        batch_size = stroke_embeddings.size(0) // self.num_stroke_nodes  
 
-        # Reshape stroke embeddings into (batch_size, 400, 128)
         stroke_embeddings = stroke_embeddings.view(batch_size, self.num_stroke_nodes, 128)
         last_column = last_column.view(batch_size, self.num_stroke_nodes)
 
         # **Compute Ratio of 1s to 0s**
         count_1s = (last_column == 1).sum(dim=1).float()  # Shape: (batch_size,)
         count_0s = (last_column == 0).sum(dim=1).float()  # Shape: (batch_size,)
-        ratio = count_1s / (count_0s + count_1s + 1e-5)  # Shape: (batch_size,) -> Avoid division by zero
+        ratio = count_1s / (count_0s + count_1s + 1e-5)  # Shape: (batch_size,)
 
-        # **Select only strokes where last_column == 1**
+        # **Transform Ratio Using Learnable MLP**
+        ratio_transformed = self.ratio_mlp(ratio.unsqueeze(-1))  # Shape: (batch_size, 8)
+
+        # **Select only strokes where last_column != -1**
         select_mask = (last_column != -1).float().unsqueeze(-1)  # Shape: (batch_size, 400, 1)
-        selected_strokes = stroke_embeddings * select_mask  # Only keep strokes where last_column == 1
+        selected_strokes = stroke_embeddings * select_mask  
 
         # **Apply Cross-Attention (1s attend to all strokes)**
         attn_output, _ = self.cross_attn(
-            query=selected_strokes,  # Shape: (batch_size, 400, 128)
-            key=stroke_embeddings,  # Shape: (batch_size, 400, 128)
-            value=stroke_embeddings,  # Shape: (batch_size, 400, 128)
+            query=selected_strokes,
+            key=stroke_embeddings,
+            value=stroke_embeddings,
         )  # Output: (batch_size, 400, 128)
 
         # **Masked Mean Pooling on Attention Output**
         masked_sum = (attn_output * select_mask).sum(dim=1)  # Sum selected strokes
         masked_count = select_mask.sum(dim=1).clamp(min=1)  # Count selected strokes
-        global_representation = masked_sum / masked_count  # Compute masked mean
+        global_representation = masked_sum / masked_count  # Shape: (batch_size, 128)
 
-        # **Concatenate Ratio as a Feature**
-        global_representation = torch.cat([global_representation, ratio.unsqueeze(-1)], dim=-1)  # (batch_size, 128 + 1)
+        # **Reduce 128D → 8D using the Deeper Feature Reducer**
+        reduced_representation = self.feature_reducer(global_representation)  # Shape: (batch_size, 8)
 
-        # **Final Classification**
-        output = self.classifier(global_representation)  # Shape: (batch_size, num_classes)
+        # **Concatenate Transformed Ratio (8D) with Stroke Features (8D)**
+        final_representation = torch.cat([reduced_representation, ratio_transformed], dim=-1)  # Shape: (batch_size, 8 + 8)
 
-        return output  # Raw logits for CrossEntropyLoss
+        # **Final Classification (Single MLP)**
+        output = self.classifier(final_representation)  # Shape: (batch_size, num_classes)
 
+        return output
 
 
 
