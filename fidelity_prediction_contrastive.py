@@ -199,8 +199,9 @@ def train():
                     output = graph_decoder(x_dict, hetero_batch)  # Shape: [batch_size, 1]
                     predicted_values = output.squeeze(-1)  # Ensure it's a 1D tensor
 
+                    print("predicted_values", predicted_values)
                     batch_size = predicted_values.shape[0]
-                    loss = 0.0
+                    loss = torch.tensor(0.0, device=predicted_values.device)
                     pair_count = 0
 
                     # Iterate over consecutive pairs for contrastive learning

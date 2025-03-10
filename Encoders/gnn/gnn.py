@@ -126,10 +126,10 @@ class Fidelity_Decoder(nn.Module):
         self.feature_reducer = nn.Sequential(
             nn.Linear(128, 64),
             nn.ReLU(),
-            nn.BatchNorm1d(64),
+            nn.LayerNorm(64),
             nn.Linear(64, 32),
             nn.ReLU(),
-            nn.BatchNorm1d(32),
+            nn.LayerNorm(32),
             nn.Linear(32, 8)  # Final output: 8D
         )
 
@@ -137,7 +137,7 @@ class Fidelity_Decoder(nn.Module):
         self.ratio_mlp = nn.Sequential(
             nn.Linear(1, 16),
             nn.ReLU(),
-            nn.BatchNorm1d(16),
+            nn.LayerNorm(16),
             nn.Linear(16, 8)
         )
 
@@ -197,10 +197,7 @@ class Fidelity_Decoder_bin(nn.Module):
 
         self.num_stroke_nodes = num_stroke_nodes  
 
-        # **Cross-Attention Module**
-        self.cross_attn = nn.MultiheadAttention(embed_dim=128, num_heads=num_heads, dropout=0.1, batch_first=True)
-
-        # **Deeper Feature Reducer (128 → 8)**
+        # **Feature Reducer (Mean Pooling First, Then Reduce Dim)**
         self.feature_reducer = nn.Sequential(
             nn.Linear(128, 64),
             nn.ReLU(),
@@ -211,6 +208,9 @@ class Fidelity_Decoder_bin(nn.Module):
             nn.Linear(32, 8)  # Final output: 8D
         )
 
+        # **Cross-Attention for Classification (8 → 128)**
+        self.cross_attn = nn.MultiheadAttention(embed_dim=8, num_heads=1, dropout=0.1, batch_first=True)
+
         # **MLP for Non-Linear Ratio Transformation**
         self.ratio_mlp = nn.Sequential(
             nn.Linear(1, 16),
@@ -219,7 +219,7 @@ class Fidelity_Decoder_bin(nn.Module):
             nn.Linear(16, 8)
         )
 
-        # **Final Classifier (One MLP)**
+        # **Final Classifier**
         self.classifier = nn.Linear(8 + 8, num_classes)  # Combine transformed ratio (8D) and stroke features (8D)
 
     def forward(self, x_dict, hetero_batch):
@@ -231,6 +231,21 @@ class Fidelity_Decoder_bin(nn.Module):
         stroke_embeddings = stroke_embeddings.view(batch_size, self.num_stroke_nodes, 128)
         last_column = last_column.view(batch_size, self.num_stroke_nodes)
 
+        # **Mean Pooling First (Global Stroke Representation)**
+        global_representation = stroke_embeddings.mean(dim=1)  # Shape: (batch_size, 128)
+
+        # **Reduce 128D → 8D**
+        reduced_representation = self.feature_reducer(global_representation)  # Shape: (batch_size, 8)
+
+        # **Self-Attention on Reduced Feature (8D)**
+        attn_output, _ = self.cross_attn(
+            query=reduced_representation.unsqueeze(1),  # (batch_size, 1, 8)
+            key=reduced_representation.unsqueeze(1),
+            value=reduced_representation.unsqueeze(1),
+        )  # Output: (batch_size, 1, 8)
+
+        attn_output = attn_output.squeeze(1)  # Shape: (batch_size, 8)
+
         # **Compute Ratio of 1s to 0s**
         count_1s = (last_column == 1).sum(dim=1).float()  # Shape: (batch_size,)
         count_0s = (last_column == 0).sum(dim=1).float()  # Shape: (batch_size,)
@@ -239,29 +254,10 @@ class Fidelity_Decoder_bin(nn.Module):
         # **Transform Ratio Using Learnable MLP**
         ratio_transformed = self.ratio_mlp(ratio.unsqueeze(-1))  # Shape: (batch_size, 8)
 
-        # **Select only strokes where last_column != -1**
-        select_mask = (last_column != -1).float().unsqueeze(-1)  # Shape: (batch_size, 400, 1)
-        selected_strokes = stroke_embeddings * select_mask  
-
-        # **Apply Cross-Attention (1s attend to all strokes)**
-        attn_output, _ = self.cross_attn(
-            query=selected_strokes,
-            key=stroke_embeddings,
-            value=stroke_embeddings,
-        )  # Output: (batch_size, 400, 128)
-
-        # **Masked Mean Pooling on Attention Output**
-        masked_sum = (attn_output * select_mask).sum(dim=1)  # Sum selected strokes
-        masked_count = select_mask.sum(dim=1).clamp(min=1)  # Count selected strokes
-        global_representation = masked_sum / masked_count  # Shape: (batch_size, 128)
-
-        # **Reduce 128D → 8D using the Deeper Feature Reducer**
-        reduced_representation = self.feature_reducer(global_representation)  # Shape: (batch_size, 8)
-
         # **Concatenate Transformed Ratio (8D) with Stroke Features (8D)**
-        final_representation = torch.cat([reduced_representation, ratio_transformed], dim=-1)  # Shape: (batch_size, 8 + 8)
+        final_representation = torch.cat([attn_output, ratio_transformed], dim=-1)  # Shape: (batch_size, 8 + 8)
 
-        # **Final Classification (Single MLP)**
+        # **Final Classification**
         output = self.classifier(final_representation)  # Shape: (batch_size, num_classes)
 
         return output

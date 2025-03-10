@@ -160,7 +160,7 @@ def process_contrastive_batch(graphs, gt_scores):
 def train():
     dataset = whole_process_evaluate.Evaluation_Dataset('program_output_dataset')
     total_samples = len(dataset)
-    chunk_size = 50000
+    chunk_size = 500
     epochs_per_chunk = 20
 
     best_val_loss = float('inf')
@@ -316,7 +316,6 @@ def train():
         del graph_train_loader, score_train_loader, graph_val_loader, score_val_loader
         torch.cuda.empty_cache()
 
-        break
 
 
 def eval():
